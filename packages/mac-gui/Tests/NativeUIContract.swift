@@ -204,6 +204,12 @@ enum AIManagerNativeContract {
            "A normal launch must keep opening the main window")
     expect(!AIManagerLaunchContext.shouldShowMainWindow(arguments: ["Switch"], event: loginEvent),
            "A login launch must stay in the menu bar")
+    expect(AIManagerLaunchContext.mainWindow(arguments: ["Switch"], event: ordinaryEvent, isActive: false)
+      == .onFirstActivation, "An open -g launch shows its window over the front app before any activation")
+    expect(AIManagerLaunchContext.mainWindow(arguments: ["Switch"], event: ordinaryEvent, isActive: true) == .now,
+      "An active launch must open the main window at once")
+    expect(AIManagerLaunchContext.mainWindow(arguments: ["Switch"], event: loginEvent, isActive: false) == .none,
+      "A login launch must not wait to open the main window")
     expect(!AIManagerLaunchContext.launchedAsLoginItem(event: ordinaryEvent),
       "An ordinary launch is mistaken for a login-item launch")
     expect(LaunchAtLoginSettings.detail(for: .enabled).contains("menu bar")
@@ -1475,6 +1481,59 @@ enum AIManagerNativeContract {
       failures.append("Chat message filter persistence test store is unavailable")
     }
 
+    // History list filter: matching, toggling, and persistence across launches.
+    let historySuite = "Switch.HistoryFilterContract.\(UUID().uuidString)"
+    if let defaults = UserDefaults(suiteName: historySuite) {
+      defer { defaults.removePersistentDomain(forName: historySuite) }
+      let present: Set<ChatThreadSource> = [.cli, .app, .vscode]
+      if !HistoryThreadFilter.load(from: defaults).isEmpty {
+        failures.append("A fresh History filter does not start at All")
+      }
+      HistoryThreadFilter.save([.cli, .vscode], to: defaults)
+      if HistoryThreadFilter.load(from: defaults) != [.cli, .vscode] {
+        failures.append("The History filter does not persist its selection")
+      }
+      defaults.set(["cli", "retired-app"], forKey: HistoryThreadFilter.defaultsKey)
+      if HistoryThreadFilter.load(from: defaults) != [.cli] {
+        failures.append("The History filter keeps unknown saved apps")
+      }
+      let thread = { (source: ChatThreadSource) in
+        ChatThreadSummary(id: source.rawValue, threadID: source.rawValue, title: "t", preview: "", workingDirectory: nil,
+          updatedAt: Date(timeIntervalSince1970: 0), archived: false, messageCount: 0, fileByteCount: 0,
+          source: URL(fileURLWithPath: "/synthetic/session.jsonl"), unreadableRecordCount: 0, appSource: source)
+      }
+      if !HistoryThreadFilter.matches(thread(.exec), []) || !HistoryThreadFilter.matches(thread(.cli), [.cli])
+        || HistoryThreadFilter.matches(thread(.app), [.cli]) {
+        failures.append("The History filter shows the wrong conversations")
+      }
+      let cases: [(Set<ChatThreadSource>, Set<ChatThreadSource>, Set<ChatThreadSource>, String)] = [
+        ([.cli], [], [.app, .vscode], "unchecking one app from All"),
+        ([.cli], [.app, .vscode], [], "checking the last app back"),
+        ([.cli], [.cli], [.cli], "unchecking the only app left"),
+        (present, [], [], "unchecking the whole provider from All"),
+        (present, [.cli], [], "checking the whole provider"),
+      ]
+      for (toggle, selection, expected, name) in cases
+        where HistoryThreadFilter.toggling(toggle, in: selection, present: present) != expected {
+        failures.append("The History filter breaks when \(name)")
+      }
+      // Claude Code is its own provider, and the watcher wakes for its session files only.
+      if HistoryThreadFilter.toggling([.claude], in: [], present: present.union([.claude])) != present
+        || HistoryThreadFilter.provider(.claude) != .claudeCode || HistoryThreadFilter.provider(.cli) != .codex {
+        failures.append("The History filter does not keep Claude Code apart from Codex")
+      }
+      let claude = ["/c/projects"]
+      let wakes = { (path: String) in
+        ChatHistoryEventPolicy.shouldRefresh(homePath: "/codex", path: path, flags: 0, claudeFolders: claude)
+      }
+      if !wakes("/c/projects/-p/s.jsonl") || wakes("/c/projects/-p/s/subagents/a.jsonl")
+        || wakes("/c/projects/-p/notes.txt") || wakes("/other/s.jsonl") || !wakes("/codex/sessions/x.jsonl") {
+        failures.append("The History watcher wakes for the wrong Claude files")
+      }
+    } else {
+      failures.append("History filter persistence test store is unavailable")
+    }
+
     let roles: [ChatMessageRole] = [.user, .assistant, .tool, .other]
     if roles.map(\.displayName) != ["Prompt", "Response", "Tool", "Other"] {
       failures.append("Chat message category labels are unstable")
@@ -1485,14 +1544,25 @@ enum AIManagerNativeContract {
   @MainActor static func menuFailures(in mainMenu: NSMenu?, applicationName: String) -> [String] {
     guard let mainMenu else { return ["Main menu is unavailable"] }
     var failures: [String] = []
-    let expectedPages = ["Overview", "Accounts", "Settings", "Maintenance", "History"]
+    let expectedPages = ["Overview", "Accounts", "Settings", "History", "Utilities"]
     if AIManagerPage.allCases.map(\.title) != expectedPages {
       failures.append("The sidebar and View menu page order is incorrect")
     }
-    if AIManagerPage.conversations.rawValue != "Conversations" {
-      failures.append("Renaming History changed its saved navigation identifier")
+    let viewTitles = (mainMenu.item(withTitle: "View")?.submenu?.items ?? []).map(\.title)
+    if Array(viewTitles.suffix(expectedPages.count)) != expectedPages {
+      failures.append("View menu pages \(viewTitles) do not follow the sidebar order")
     }
-    let expectedSymbols = ["house.fill", "person.2.fill", "gearshape.fill", "wrench.and.screwdriver.fill", "ellipsis.message.fill"]
+    if AIManagerPage.conversations.rawValue != "Conversations" || AIManagerPage.maintenance.rawValue != "Maintenance" {
+      failures.append("Renaming History or Utilities changed its saved navigation identifier")
+    }
+    if let saved = UserDefaults(suiteName: "switch-contract-saved-page") {
+      saved.set("Maintenance", forKey: AIMPlace.lastPageKey)
+      if AIMPlace.launchPage(defaults: saved) != .maintenance {
+        failures.append("A saved Maintenance page no longer opens Utilities")
+      }
+      saved.removePersistentDomain(forName: "switch-contract-saved-page")
+    }
+    let expectedSymbols = ["house.fill", "person.2.fill", "gearshape.fill", "ellipsis.message.fill", "wrench.and.screwdriver.fill"]
     if AIManagerPage.allCases.map(\.icon.symbol) != expectedSymbols
       || expectedSymbols.contains(where: { NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil })
     {
@@ -2467,13 +2537,29 @@ enum AIManagerNativeContract {
     let menu = NSHostingMenu(rootView: ChatFilteredCopyButton(
       messages: messages.filter { ChatMessageFilter.prompts.includes($0.role) }))
     menu.update()
-    let index = menu.indexOfItem(withTitle: "Copy")
+    // The control is icon-only, so its menu item has no title; it is the menu's one item.
+    let index = menu.numberOfItems == 1 ? 0 : menu.indexOfItem(withTitle: "Copy conversation")
     guard index >= 0, menu.item(at: index)?.isEnabled == true else {
       return ["The actual History Copy control is missing or disabled"]
     }
     menu.performActionForItem(at: index)
     guard pasteboard.string(forType: .string) == "[Prompt | Unknown time]\n# Goal\n\nKeep **raw Markdown**." else {
       return ["The History Copy control did not copy only the visible raw messages"]
+    }
+    // The right-click menu of a conversation copies each part on its own.
+    let thread = ChatThreadSummary(
+      id: "copy-row", threadID: "019f-copy", title: "A long synthetic title", preview: "",
+      workingDirectory: "/synthetic/project", updatedAt: Date(timeIntervalSince1970: 0), archived: false,
+      messageCount: 0, fileByteCount: 0, source: URL(fileURLWithPath: "/synthetic/session.jsonl"),
+      unreadableRecordCount: 0, model: "gpt-synthetic")
+    let rowMenu = NSHostingMenu(rootView: ChatThreadCopyItems(thread: thread))
+    rowMenu.update()
+    for (title, text) in [("Copy Title", thread.title), ("Copy Path", "/synthetic/project"),
+                          ("Copy Thread ID", "019f-copy"), ("Copy Model", "gpt-synthetic")] {
+      let item = rowMenu.indexOfItem(withTitle: title)
+      guard item >= 0 else { return ["The History row menu has no \(title) item"] }
+      rowMenu.performActionForItem(at: item)
+      if pasteboard.string(forType: .string) != text { return ["History \(title) copied the wrong text"] }
     }
     if NSApp.isActive || NSWorkspace.shared.frontmostApplication?.processIdentifier != foreground {
       return ["The private History copy check changed focus"]
@@ -3106,6 +3192,23 @@ enum AIManagerNativeContract {
         expect(data.heatLevel(0) == 0 && data.heatLevel(Int64.max) == 4, "The heatmap levels are wrong")
       }
     }
+    for grouping in UsageGrouping.allCases {
+      let summary = snapshot.summary(period: .today, grouping: grouping, now: DemoData.now)
+      let data = OverviewDataset.make(summary: summary, year: year, accounts: accounts, hideEmails: false)
+      let started = summary.startedHours ?? 0
+      // Just after local midnight only one hour has begun, so 1 is valid here.
+      expect(data.hourly && (23...25).contains(data.days.count) && started >= 1 && !data.series.isEmpty
+        && data.series.allSatisfy { $0.daily.count == started } && data.streamSummary.hasPrefix("Today, ")
+        && data.ridgeSummary.hasPrefix("Hourly usage"),
+        "The Overview today by \(grouping.rawValue) is not hourly up to now")
+    }
+    let firstHour = OverviewStreamLayout.layers(
+      [OverviewSeries(id: "m", label: "m", color: .blue, tokens: 5, daily: [5])], size: CGSize(width: 230, height: 100),
+      slots: 24)
+    expect(firstHour.first.map { $0.top.count == 2 && $0.top[1].x == 10 && $0.top[0].y < $0.bottom[0].y } ?? false,
+      "The first hour of today draws no band")
+    let hourAxis = OverviewDateAxis.labels(snapshot.summary(period: .today, grouping: .model, now: DemoData.now).days)
+    expect(hourAxis.count == 5 && hourAxis.first?.fraction == 0, "The Today axis is not every 6 hours")
     let demoServices = Set(snapshot.summary(period: .month, grouping: .account).groups.flatMap(\.services))
     expect(["codex", "claude-code", "droid"].allSatisfy(demoServices.contains),
       "The Overview demo by account lacks Codex, Claude Code, or Droid")

@@ -339,15 +339,15 @@ private enum AcceptanceConfiguration {
     static var opensAddSignIn: Bool { CommandLine.arguments.contains("--add-signin") }
     static var showsAllStates: Bool { CommandLine.arguments.contains("--all-states") }
     static var stressesHistory: Bool { CommandLine.arguments.contains("--history-stress") }
-    /// Index into `AIManagerPage.allCases`: Overview (default), Accounts, Settings, Maintenance,
-    /// Conversations.
+    /// Index into `AIManagerPage.allCases`: Overview (default), Accounts, Settings, Conversations,
+    /// Maintenance (shown as Utilities).
     static var initialPageIndex: Int {
         if CommandLine.arguments.contains("--accounts") { return 1 }
         if CommandLine.arguments.contains("--settings") { return 2 }
+        if CommandLine.arguments.contains("--history") { return 3 }
         if CommandLine.arguments.contains("--backup")
             || CommandLine.arguments.contains("--recovery")
-            || CommandLine.arguments.contains("--cleanup") { return 3 }
-        if CommandLine.arguments.contains("--history") { return 4 }
+            || CommandLine.arguments.contains("--cleanup") { return 4 }
         return 0
     }
     /// The page the run asked for and the page the window shows now; empty when they match.
@@ -1451,6 +1451,13 @@ private final class AcceptanceReceipts {
             sheet.layoutSubtreeIfNeeded()
             writeSnapshot(of: sheet, filename: "sheet.png")
         }
+        // An open popover (such as the History filter) is its own window.
+        if let popover = NSApp.windows.first(where: { "\(type(of: $0))".contains("Popover") && $0.isVisible })?.contentView {
+            writeSnapshot(of: popover, filename: "popover.png")
+        } else if let directory {
+            // No popover now: an older popover.png would sit beside this window.png.
+            try? FileManager.default.removeItem(at: directory.appending(path: "popover.png"))
+        }
         guard let directory else { return }
         let hierarchy = AIManagerNativeContract.hierarchySnapshot(in: view)
         let encoder = JSONEncoder()
@@ -1545,7 +1552,7 @@ private final class AcceptanceReceipts {
     private func clearReceipts() {
         guard let directory else { return }
         let fileManager = FileManager.default
-        for name in ["window-contract.json", "window.png", "menu-bar.png", "tray-glyphs.png", "provider-glyphs.png", "brand-sheet.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
+        for name in ["window-contract.json", "window.png", "menu-bar.png", "tray-glyphs.png", "provider-glyphs.png", "brand-sheet.png", "popover.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
             try? fileManager.removeItem(at: directory.appending(path: name))
         }
     }
@@ -1651,6 +1658,23 @@ enum SearchPreviewDriver {
 
     /// Also runs in the offscreen contract run, before its window.png is written.
     static func run(window: NSWindow) async {
+        // `--right-click-at=x,y` opens that point's context menu for a screenshot; the menu blocks until closed.
+        if let raw = PreviewArguments.value("right-click-at"), let view = window.contentView {
+            let parts = raw.split(separator: ",").compactMap { Double($0) }
+            if parts.count == 2 {
+                // A hidden window is ordered in, see-through, only while the menu is open, then put back.
+                let (hidden, alpha) = (!window.isVisible, window.alphaValue)
+                if hidden { window.alphaValue = 0; window.orderFrontRegardless() }
+                let point = NSPoint(x: parts[0], y: view.bounds.height - parts[1])
+                if let event = NSEvent.mouseEvent(
+                    with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    print("RIGHT_CLICK_SENT")
+                    window.sendEvent(event)
+                }
+                if hidden { window.orderOut(nil); window.alphaValue = alpha }
+            }
+        }
         guard CommandLine.arguments.contains(where: { $0.hasPrefix("--type-search=") }) else { return }
         do {
             NotificationCenter.default.post(name: AIManagerNavigation.focusSearch, object: nil)

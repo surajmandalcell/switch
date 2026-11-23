@@ -3,7 +3,7 @@ set -eu
 
 app_version=3.8.2
 cli_version=3.9.1
-releases=https://github.com/surajmandalcell/switch/releases/download
+releases=https://github.com/samhqapp/switch/releases/download
 fail() { printf 'Switch: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "Install $1 and try again."; }
 

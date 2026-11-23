@@ -4,8 +4,9 @@ import AIManagerCore
 public enum UsageHistorySourceList {
     // shortcut: written from the Mac AccountViewModel.loadUsageHistory source list, which keeps its own copy until
     // the Mac app adopts SwitchAppModel. The CLI `history` command calls this.
-    /// The Overview sources: the Codex activity ledger and provider charts always; Claude, Grok, and Droid logs only
-    /// outside a test home. Providers with a transcript scanner are never counted again from their charts.
+    /// The Overview sources: the Codex activity ledger and provider charts always; Claude logs only outside a test
+    /// home; Grok and Droid logs when their folder is inside the test home. Providers with a transcript scanner are
+    /// never counted again from their charts.
     public static func make(paths: ManagerPaths, accounts: [AccountRecord], historyAccounts: [HistoricalUsageAccount],
                             ledger: CodexUsageStatisticsCache?, providerUsage: [UUID: ProviderUsage],
                             environment: [String: String] = ProcessInfo.processInfo.environment) -> UsageHistorySources {
@@ -13,7 +14,12 @@ public enum UsageHistorySourceList {
         var sources = UsageHistorySources(ledger: ledger)
         sources.accounts = Dictionary(grouping: historyAccounts, by: { $0.providerID.rawValue })
             .mapValues { $0.map { $0.id.uuidString.lowercased() } }
-        // A test home never reads the real Claude, Grok, or Droid folders, nor fetches prices.
+        // A test home never reads the real Claude, Grok, or Droid folders, nor fetches prices. Its own Grok and
+        // Droid folders are synthetic, so they are read.
+        let grok = paths.grokHome.appending(path: "sessions", directoryHint: .isDirectory)
+        if paths.allowsRead(grok) { sources.grokSessions = grok }
+        let droid = DroidUsage.sessionsFolder(droidHome: paths.droidHome)
+        if paths.allowsRead(droid) { sources.droidSessions = droid }
         if paths.isolationRoot == nil {
             let pricing = ClaudePricingSource(cacheURL: support.appending(path: "cache/model-pricing.json")).loader()
             sources.pricing = pricing
@@ -21,8 +27,6 @@ public enum UsageHistorySourceList {
                 roots: ClaudeCostScanner.defaultRoots(environment: environment, home: paths.userHome),
                 cacheURL: support.appending(path: "cache/claude-history.json"), pricing: pricing)
             sources.claudeHomes = UsageHistory.claudeProfileHomes(accounts: accounts)
-            sources.grokSessions = paths.grokHome.appending(path: "sessions", directoryHint: .isDirectory)
-            sources.droidSessions = DroidUsage.sessionsFolder(droidHome: paths.droidHome)
         }
         let scanned: Set<ProviderID> = [.codex, .claudeCode, .grokBuild, .droid]
         sources.charts = accounts.filter { !scanned.contains($0.identity.providerID) }.flatMap { account in

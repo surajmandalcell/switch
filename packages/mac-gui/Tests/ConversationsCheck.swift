@@ -787,7 +787,7 @@ private final class WheelTestDocument: NSView {
     func open(_ tag: String) async -> (NSWindow, NSHostingView<AnyView>, AccountViewModel) {
       let model = makeModel(provider: SyntheticChatProvider.stress(threadCount: 40), root: root.appending(path: "restore"))
       let (window, hosting) = host(
-        AccountWindow(model: model, initialPageIndex: 4), size: NSSize(width: 1200, height: 900), dark: false)
+        AccountWindow(model: model, initialPageIndex: AIManagerPage.allCases.firstIndex(of: .conversations)!), size: NSSize(width: 1200, height: 900), dark: false)
       _ = await waitUntil { model.selectedChat != nil && !model.isChatLoading }
       await pause(500)
       hosting.layoutSubtreeIfNeeded()
@@ -921,7 +921,7 @@ private final class WheelTestDocument: NSView {
         let tag = "\(dark ? "dark" : "light")-\(Int(height))"
         let model = makeModel(provider: SyntheticChatProvider.stress(threadCount: 40), root: root.appending(path: tag))
         let (window, hosting) = host(
-          AccountWindow(model: model, initialPageIndex: 4), size: NSSize(width: 1200, height: height), dark: dark)
+          AccountWindow(model: model, initialPageIndex: AIManagerPage.allCases.firstIndex(of: .conversations)!), size: NSSize(width: 1200, height: height), dark: dark)
         let ready = await waitUntil { model.selectedChat != nil && !model.isChatLoading }
         if !ready { failures.append("\(tag): the conversation did not open") }
         await pause(500)
@@ -943,7 +943,7 @@ private final class WheelTestDocument: NSView {
         home: URL(fileURLWithPath: real), cacheFile: root.appending(path: "real-cache.json"))
       let model = makeModel(provider: RealChatProvider(index: index), root: root.appending(path: tag))
       let (window, hosting) = host(
-        AccountWindow(model: model, initialPageIndex: 4), size: NSSize(width: 1200, height: 900), dark: false)
+        AccountWindow(model: model, initialPageIndex: AIManagerPage.allCases.firstIndex(of: .conversations)!), size: NSSize(width: 1200, height: 900), dark: false)
       _ = await waitUntil(timeout: 90) { model.chatHistory.totalThreadCount > 0 }
       // Walk the ten largest conversations.
       let largest = model.chatHistory.threads.sorted { $0.fileByteCount > $1.fileByteCount }.prefix(10)

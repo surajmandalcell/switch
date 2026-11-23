@@ -18,10 +18,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/surajmandalcell/switch/releases/latest"><b>Download for Mac</b></a> &nbsp;·&nbsp;
+  <a href="https://github.com/samhqapp/switch/releases/latest"><b>Download for Mac</b></a> &nbsp;·&nbsp;
   <a href="https://switch.samhq.app">Website</a> &nbsp;·&nbsp;
   <a href="#installation">Installation</a> &nbsp;·&nbsp;
-  <a href="https://github.com/surajmandalcell/switch/issues">Report a problem</a>
+  <a href="https://github.com/samhqapp/switch/issues">Report a problem</a>
 </p>
 
 <p align="center">
@@ -53,12 +53,12 @@ There is more: search local conversations, preview Cleanup before it moves anyth
 Run this in Terminal:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/surajmandalcell/switch/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/samhqapp/switch/master/install.sh | sh
 ```
 
 It installs the Mac app and the Switch CLI. Run it again to update.
 
-Or [download the `.dmg`](https://github.com/surajmandalcell/switch/releases/latest), open it, and drag **Switch** to **Applications**.
+Or [download the `.dmg`](https://github.com/samhqapp/switch/releases/latest), open it, and drag **Switch** to **Applications**.
 
 Then:
 
@@ -76,7 +76,7 @@ Then:
 Run this in a terminal:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/surajmandalcell/switch/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/samhqapp/switch/master/install.sh | sh
 ```
 
 It installs the Switch CLI, a full terminal app, in `~/.local/bin`. Run it again to update.
@@ -197,7 +197,7 @@ Usage integrations include work adapted from [OpenUsage](https://github.com/robi
 
 <p align="center">
   Open source apps can look this good. If you agree, a star on GitHub helps more people find Switch.<br>
-  <a href="https://github.com/surajmandalcell/switch"><b>⭐ Star Switch on GitHub</b></a>
+  <a href="https://github.com/samhqapp/switch"><b>⭐ Star Switch on GitHub</b></a>
 </p>
 
 ## License

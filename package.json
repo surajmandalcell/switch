@@ -6,10 +6,10 @@
   "author": "Suraj Mandal",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/surajmandalcell/switch.git"
+    "url": "git+https://github.com/samhqapp/switch.git"
   },
-  "homepage": "https://github.com/surajmandalcell/switch#installation",
-  "bugs": "https://github.com/surajmandalcell/switch/issues",
+  "homepage": "https://github.com/samhqapp/switch#installation",
+  "bugs": "https://github.com/samhqapp/switch/issues",
   "keywords": [
     "codex",
     "openai",

@@ -135,6 +135,21 @@ struct CodexTranscriptActivity: Sendable {
     let complete: Bool
     /// Keyed by `day + "\u{1F}" + model`.
     var models: [String: CodexModelUsage] = [:]
+    /// Recent tokens per 15-minute slot, keyed by `quarter + "\u{1F}" + model` (epoch seconds / 900).
+    var quarters: [String: CodexModelUsage] = [:]
+}
+
+/// Transcript tokens with one model in one 15-minute slot, for the Today view. Quarter hours, not
+/// hours, so every slot falls inside one local hour in any time zone (India +5:30, Nepal +5:45).
+public struct CodexLedgerThreadQuarter: Sendable, Equatable {
+    /// Seconds since 1970 divided by 900.
+    public let quarter: Int64
+    public let project: String
+    public let model: String?
+    public let tokens: Int64
+    public let input: Int64
+    public let cached: Int64
+    public let output: Int64
 }
 
 /// One local-transcript day of a thread: shared-home data, never attached to an account.
@@ -264,6 +279,13 @@ public actor CodexUsageStatisticsCache {
                             payload BLOB NOT NULL, observed_at REAL NOT NULL
                         ) WITHOUT ROWID;
                         CREATE INDEX IF NOT EXISTS historical_usage_day ON historical_usage(day);
+                        CREATE TABLE IF NOT EXISTS thread_quarters(
+                            thread_id TEXT NOT NULL, quarter INTEGER NOT NULL, model TEXT NOT NULL,
+                            tokens INTEGER NOT NULL CHECK(tokens >= 0),
+                            input INTEGER NOT NULL, cached INTEGER NOT NULL, output INTEGER NOT NULL,
+                            PRIMARY KEY(thread_id, quarter, model)
+                        ) WITHOUT ROWID;
+                        CREATE INDEX IF NOT EXISTS thread_quarters_time ON thread_quarters(quarter);
                         PRAGMA user_version = \(Self.activitySchemaVersion);
                         """)
                 }
@@ -750,6 +772,35 @@ public actor CodexUsageStatisticsCache {
         }
     }
 
+    /// Transcript tokens per 15-minute slot, project and model, for slots `first...last`.
+    public func threadQuarters(from first: Int64, through last: Int64) throws -> [CodexLedgerThreadQuarter] {
+        guard first <= last, let activityDatabaseURL else { return [] }
+        return try Self.withDatabase(at: activityDatabaseURL) { database in
+            var rows: [CodexLedgerThreadQuarter] = []
+            let statement = try Self.prepare(database, """
+                SELECT q.quarter, t.project, q.model, SUM(q.tokens), SUM(q.input), SUM(q.cached), SUM(q.output)
+                FROM thread_quarters q JOIN activity_threads t USING(thread_id)
+                WHERE q.quarter BETWEEN ?1 AND ?2 GROUP BY q.quarter, t.project, q.model
+                """)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, first)
+            sqlite3_bind_int64(statement, 2, last)
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let project = Self.text(statement, column: 1) else { continue }
+                let model = Self.text(statement, column: 2)
+                rows.append(.init(
+                    quarter: sqlite3_column_int64(statement, 0), project: project,
+                    model: model == "unknown" ? nil : model, tokens: sqlite3_column_int64(statement, 3),
+                    input: sqlite3_column_int64(statement, 4), cached: sqlite3_column_int64(statement, 5),
+                    output: sqlite3_column_int64(statement, 6)))
+            }
+            guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
+                throw Self.databaseError(database, "Could not read hourly activity")
+            }
+            return rows
+        }
+    }
+
     /// One thread's tokens with one model on `day`: the per-session view of the same rows as `threadDays`.
     public func threadSessions(day: String) throws -> [CodexLedgerSessionRow] {
         guard Self.validDay(day), let activityDatabaseURL else { return [] }
@@ -875,6 +926,30 @@ public actor CodexUsageStatisticsCache {
                     sqlite3_bind_int64(insertModel, 7, usage.output)
                     guard sqlite3_step(insertModel) == SQLITE_DONE else {
                         throw Self.databaseError(database, "Could not save daily model activity")
+                    }
+                }
+                let deleteQuarters = try Self.prepare(database, "DELETE FROM thread_quarters WHERE thread_id = ?1")
+                defer { sqlite3_finalize(deleteQuarters) }
+                Self.bind(id, to: deleteQuarters, at: 1)
+                guard sqlite3_step(deleteQuarters) == SQLITE_DONE else {
+                    throw Self.databaseError(database, "Could not replace transcript hourly activity")
+                }
+                let insertQuarter = try Self.prepare(database,
+                    "INSERT OR REPLACE INTO thread_quarters VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+                defer { sqlite3_finalize(insertQuarter) }
+                for (key, usage) in activity.quarters {
+                    let parts = key.split(separator: "\u{1F}", maxSplits: 1).map(String.init)
+                    guard parts.count == 2, let quarter = Int64(parts[0]), quarter >= 0, usage.tokens >= 0 else { continue }
+                    sqlite3_reset(insertQuarter)
+                    Self.bind(id, to: insertQuarter, at: 1)
+                    sqlite3_bind_int64(insertQuarter, 2, quarter)
+                    Self.bind(String(parts[1].prefix(256)), to: insertQuarter, at: 3)
+                    sqlite3_bind_int64(insertQuarter, 4, usage.tokens)
+                    sqlite3_bind_int64(insertQuarter, 5, usage.input)
+                    sqlite3_bind_int64(insertQuarter, 6, usage.cached)
+                    sqlite3_bind_int64(insertQuarter, 7, usage.output)
+                    guard sqlite3_step(insertQuarter) == SQLITE_DONE else {
+                        throw Self.databaseError(database, "Could not save hourly activity")
                     }
                 }
                 let insert = try Self.prepare(database, "INSERT INTO project_days VALUES(?1, ?2, ?3)")

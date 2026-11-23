@@ -16,15 +16,26 @@ protocol ChatHistoryProviding: Sendable {
     func attachActivityCache(_ cache: CodexUsageStatisticsCache) async
     func refresh(query: String) async throws -> ChatHistorySnapshot
     func search(query: String) async -> ChatHistorySnapshot
+    /// Only the apps in `sources` (empty means all), filtered before the list limit.
+    func refresh(query: String, sources: Set<ChatThreadSource>) async throws -> ChatHistorySnapshot
+    func search(query: String, sources: Set<ChatThreadSource>) async -> ChatHistorySnapshot
     func detail(for id: String) async throws -> ChatThreadDetail?
     func page(for id: String, offset: Int, query: String, filter: ChatMessageFilter) async throws -> ChatThreadDetail?
     func clearCache() async throws
     func cleanupSummaries() async -> [ChatThreadSummary]
     func preserveActivity(for sources: [URL]) async throws
+    func addClaudeRoots(_ homes: [URL]) async
 }
 
 extension ChatHistoryProviding {
     func attachActivityCache(_ cache: CodexUsageStatisticsCache) async {}
+    func addClaudeRoots(_ homes: [URL]) async {}
+    func refresh(query: String, sources: Set<ChatThreadSource>) async throws -> ChatHistorySnapshot {
+        try await refresh(query: query)
+    }
+    func search(query: String, sources: Set<ChatThreadSource>) async -> ChatHistorySnapshot {
+        await search(query: query)
+    }
     func cleanupSummaries() async -> [ChatThreadSummary] { [] }
     func preserveActivity(for sources: [URL]) async throws {
         throw AIManagerError.operationFailed("The activity ledger is unavailable. Conversations were kept.")
@@ -40,30 +51,48 @@ extension ChatHistoryProviding {
     }
 }
 
+/// Codex chats from `index`, plus Claude Code sessions from `claude` merged into one list.
+/// Cleanup and activity stay Codex only.
 private struct IndexedChatHistoryProvider: ChatHistoryProviding {
     let index: ChatHistoryIndex
+    let claude: ClaudeChatIndex?
 
     func attachActivityCache(_ cache: CodexUsageStatisticsCache) async {
         await index.attachActivityCache(cache)
     }
 
-    func refresh(query: String) async throws -> ChatHistorySnapshot {
-        try await index.refresh(query: query)
+    func addClaudeRoots(_ homes: [URL]) async { await claude?.addRoots(homes) }
+
+    func refresh(query: String) async throws -> ChatHistorySnapshot { try await refresh(query: query, sources: []) }
+
+    func search(query: String) async -> ChatHistorySnapshot { await search(query: query, sources: []) }
+
+    func refresh(query: String, sources: Set<ChatThreadSource>) async throws -> ChatHistorySnapshot {
+        async let codex = index.refresh(query: query, sources: sources)
+        guard let claude else { return try await codex }
+        let sessions = try await claude.refresh(query: query, sources: sources)
+        return .merging(try await codex, sessions)
     }
 
-    func search(query: String) async -> ChatHistorySnapshot {
-        await index.search(query: query)
+    func search(query: String, sources: Set<ChatThreadSource>) async -> ChatHistorySnapshot {
+        let codex = await index.search(query: query, sources: sources)
+        guard let claude else { return codex }
+        return .merging(codex, await claude.search(query: query, sources: sources))
     }
 
     func detail(for id: String) async throws -> ChatThreadDetail? {
-        try await index.detail(for: id)
+        try await page(for: id, offset: 0, query: "", filter: .all)
     }
 
     func page(for id: String, offset: Int, query: String, filter: ChatMessageFilter) async throws -> ChatThreadDetail? {
-        try await index.detail(for: id, offset: offset, query: query, filter: filter)
+        if let detail = try await claude?.detail(for: id, offset: offset, query: query, filter: filter) {
+            return detail
+        }
+        return try await index.detail(for: id, offset: offset, query: query, filter: filter)
     }
 
     func clearCache() async throws {
+        await claude?.clearCache()
         try await index.clearCache()
     }
     func cleanupSummaries() async -> [ChatThreadSummary] { await index.cleanupSummaries() }
@@ -233,6 +262,8 @@ final class AccountViewModel: ObservableObject {
     private var hasScannedChatHistory = false
     private var requestedChatHistoryQuery = ""
     private var appliedChatHistoryQuery: String?
+    private var requestedChatHistorySources: Set<ChatThreadSource> = []
+    private var appliedChatHistorySources: Set<ChatThreadSource> = []
     private var chatDetailTask: Task<ChatThreadDetail?, Error>?
 
     init(
@@ -255,9 +286,13 @@ final class AccountViewModel: ObservableObject {
                 ?? IndexedChatHistoryProvider(index: ChatHistoryIndex(
                     home: paths.sharedRoot,
                     cacheFile: paths.applicationSupport.appending(
-                        path: "cache/chat-history-v1.json")))
+                        path: "cache/chat-history-v1.json")),
+                    // A test home never reads the real Claude folders.
+                    claude: paths.isolationRoot != nil ? nil : ClaudeChatIndex(
+                        cacheFile: paths.applicationSupport.appending(path: "cache/claude-chat-history-v1.json")))
             chatHistoryMonitor = injectedChatHistoryMonitor
-                ?? FSEventChatHistoryMonitor(home: paths.sharedRoot)
+                ?? FSEventChatHistoryMonitor(home: paths.sharedRoot, claudeFolders: paths.isolationRoot != nil
+                    ? [] : ClaudeChatIndex.projectsFolders(ClaudeCostScanner.defaultRoots()))
         } catch {
             manager = nil
             chatHistoryProvider = nil
@@ -2459,10 +2494,11 @@ final class AccountViewModel: ObservableObject {
 
         func indexActivity() async {
             do {
-                let snapshot = try await chatHistoryProvider.refresh(query: requestedChatHistoryQuery)
+                let (query, sources) = (requestedChatHistoryQuery, requestedChatHistorySources)
+                let snapshot = try await chatHistoryProvider.refresh(query: query, sources: sources)
                 guard !Task.isCancelled else { return }
                 if hasScannedChatHistory {
-                    applyChatHistory(snapshot, query: requestedChatHistoryQuery)
+                    applyChatHistory(snapshot, query: query, sources: sources)
                     await selectVisibleChat()
                 }
             } catch is CancellationError {
@@ -2473,28 +2509,31 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
-    func searchChatHistory(query: String) async {
+    /// `sources` is the History app filter (empty shows all); the index applies it before its list limit.
+    func searchChatHistory(query: String, sources: Set<ChatThreadSource> = []) async {
         if !query.isEmpty {
             do { try await Task.sleep(for: .milliseconds(120)) }
             catch { return }
         }
         guard !Task.isCancelled else { return }
         requestedChatHistoryQuery = query
+        requestedChatHistorySources = sources
         #if AI_MANAGER_PREVIEW
         if isDemo {
-            await refreshChatHistory(query: query)
+            await refreshChatHistory(query: query, sources: sources)
             return
         }
         #endif
         guard hasScannedChatHistory, let chatHistoryProvider else { return }
-        let snapshot = await chatHistoryProvider.search(query: query)
-        guard !Task.isCancelled, requestedChatHistoryQuery == query else { return }
-        applyChatHistory(snapshot, query: query)
+        let snapshot = await chatHistoryProvider.search(query: query, sources: sources)
+        guard !Task.isCancelled, requestedChatHistoryQuery == query, requestedChatHistorySources == sources else { return }
+        applyChatHistory(snapshot, query: query, sources: sources)
         await selectVisibleChat()
     }
 
-    func refreshChatHistory(query: String) async {
+    func refreshChatHistory(query: String, sources: Set<ChatThreadSource> = []) async {
         requestedChatHistoryQuery = query
+        requestedChatHistorySources = sources
         let showsLoader = chatHistory.threads.isEmpty
         if showsLoader && !isChatHistoryLoading { isChatHistoryLoading = true }
         defer { if showsLoader { isChatHistoryLoading = false } }
@@ -2503,15 +2542,18 @@ final class AccountViewModel: ObservableObject {
             let terms = query.split(whereSeparator: \.isWhitespace).map { $0.lowercased() }
             let all = scenario == .empty
                 ? [] : (scenario == .historyStress ? DemoData.stressChatThreads : DemoData.chatThreads)
-            let matches = terms.isEmpty ? all : all.filter { thread in
+            let found = terms.isEmpty ? all : all.filter { thread in
                 let text = [thread.title, thread.preview, thread.workingDirectory, thread.threadID]
                     .compactMap { $0 }.joined(separator: "\n").lowercased()
                 return terms.allSatisfy(text.contains)
             }
-            applyChatHistory(ChatHistorySnapshot(
+            let matches = sources.isEmpty ? found : found.filter { sources.contains($0.appSource) }
+            var demo = ChatHistorySnapshot(
                 threads: matches,
                 totalThreadCount: all.count,
-                matchingThreadCount: matches.count), query: query)
+                matchingThreadCount: matches.count)
+            demo.sourceCounts = found.reduce(into: [:]) { $0[$1.appSource, default: 0] += 1 }
+            applyChatHistory(demo, query: query, sources: sources)
             await selectVisibleChat()
             return
         }
@@ -2522,10 +2564,12 @@ final class AccountViewModel: ObservableObject {
             return
         }
         do {
-            let snapshot = try await chatHistoryProvider.refresh(query: query)
+            await chatHistoryProvider.addClaudeRoots(
+                Array(UsageHistory.claudeProfileHomes(accounts: status?.accounts ?? []).values))
+            let snapshot = try await chatHistoryProvider.refresh(query: query, sources: sources)
             guard !Task.isCancelled else { return }
             hasScannedChatHistory = true
-            applyChatHistory(snapshot, query: query)
+            applyChatHistory(snapshot, query: query, sources: sources)
             if chatHistoryError != nil { chatHistoryError = nil }
             await selectVisibleChat()
         } catch is CancellationError {
@@ -2537,8 +2581,10 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
-    private func applyChatHistory(_ snapshot: ChatHistorySnapshot, query: String) {
+    private func applyChatHistory(_ snapshot: ChatHistorySnapshot, query: String, sources: Set<ChatThreadSource>) {
         guard appliedChatHistoryQuery != query
+                || appliedChatHistorySources != sources
+                || snapshot.sourceCounts != chatHistory.sourceCounts
                 || snapshot.libraryRevision != chatHistory.libraryRevision
                 || snapshot.totalThreadCount != chatHistory.totalThreadCount
                 || snapshot.matchingThreadCount != chatHistory.matchingThreadCount
@@ -2547,6 +2593,7 @@ final class AccountViewModel: ObservableObject {
         else { return }
         chatHistory = snapshot
         appliedChatHistoryQuery = query
+        appliedChatHistorySources = sources
     }
 
     func selectChat(_ id: String) async {
@@ -2580,7 +2627,8 @@ final class AccountViewModel: ObservableObject {
             if let summary = visible.first(where: { $0.id == selectedChatID }),
                selectedChat?.thread != summary {
                 await loadSelectedChat(selectedChatID)
-            } else if requestedChatHistoryQuery.isEmpty, selectedChat == nil, !visible.isEmpty,
+            } else if requestedChatHistoryQuery.isEmpty, requestedChatHistorySources.isEmpty, selectedChat == nil,
+                      !visible.isEmpty,
                       !visible.contains(where: { $0.id == selectedChatID }) {
                 // The remembered conversation is gone: open the newest one instead.
                 self.selectedChatID = visible[0].id
@@ -3053,19 +3101,31 @@ enum DemoData {
     static let chatThreads = [
         chatThread(
             id: "demo-chat-accounts", threadID: "019f4b6d-accounts",
-            title: "Polish the account import flow",
+            title: "Polish the account import flow so long source paths and workspace names never push the row past the card edge",
             preview: "The source rows now stay aligned and the review step is ready.",
-            project: "/Projects/Switch", minutesAgo: 8, messages: 10, tokens: 15_200),
+            project: "/Projects/Switch", minutesAgo: 8, messages: 10, tokens: 15_200,
+            appSource: .app, model: "gpt-6.2-sol"),
         chatThread(
             id: "demo-chat-linux", threadID: "019f4b6d-linux",
             title: "Verify the Linux release matrix",
             preview: "Both ARM64 and AMD64 passed in clean read-only containers.",
-            project: "/Projects/Switch", minutesAgo: 74, messages: 3),
+            project: "/Projects/Switch", minutesAgo: 74, messages: 3, appSource: .cli, model: "gpt-6.2-sol"),
+        chatThread(
+            id: "demo-chat-claude-history", threadID: "5b0e2c1a-history",
+            title: "Show Claude Code sessions in History",
+            preview: "Claude sessions now sit beside Codex chats, newest first.",
+            project: "/Projects/Switch", minutesAgo: 31, messages: 5, appSource: .claude, model: "claude-opus-5-5"),
+        chatThread(
+            id: "demo-chat-claude-site", threadID: "5b0e2c1a-site",
+            title: "Tighten the pricing section spacing",
+            preview: "The cards now share one baseline at every width.",
+            project: "/Projects/Website", minutesAgo: 312, messages: 3, appSource: .claude,
+            model: "claude-sonnet-5-5"),
         chatThread(
             id: "demo-chat-icon", threadID: "019f4b6d-icon",
             title: "Trace the final Switch icon",
             preview: "The approved pixel trace is packaged for light and dark appearances.",
-            project: "/Projects/Switch", minutesAgo: 1_460, messages: 4, archived: true),
+            project: "/Projects/Switch", minutesAgo: 1_460, messages: 4, archived: true, appSource: .vscode),
     ]
 
     static let stressChatThreads: [ChatThreadSummary] = chatThreads + (chatThreads.count..<1_717).map {
@@ -3101,6 +3161,20 @@ enum DemoData {
                 (.user, "Run the core and CLI checks on both Linux architectures."),
                 (.assistant, "The read-only ARM64 container passed."),
                 (.assistant, "Both ARM64 and AMD64 passed in clean read-only containers."),
+            ]
+        case "demo-chat-claude-history":
+            copy = [
+                (.user, "Claude chats are missing from History. Add them next to Codex."),
+                (.other, "Checked where Claude Code keeps its session files."),
+                (.tool, "Read\n{\"file_path\":\"ChatHistoryIndex.swift\"}"),
+                (.assistant, "The index read only Codex files. I added a Claude index and merged both lists."),
+                (.assistant, "Claude sessions now sit beside Codex chats, newest first."),
+            ]
+        case "demo-chat-claude-site":
+            copy = [
+                (.user, "The pricing cards do not line up on a phone."),
+                (.tool, "Edit\n{\"file_path\":\"pricing.css\"}"),
+                (.assistant, "The cards now share one baseline at every width."),
             ]
         default:
             copy = [
@@ -3181,7 +3255,32 @@ enum DemoData {
                     model: row.model, project: row.project, tokens: count, costUSD: Double(count) * 4.2e-6))
             }
         }
-        return UsageHistorySnapshot(points: points, today: utcDay(Date(timeIntervalSince1970: Double(today) * 86_400)))
+        return UsageHistorySnapshot(points: points, today: utcDay(Date(timeIntervalSince1970: Double(today) * 86_400)),
+                                    slots: usageSlots(rows: transcripts, owners: owners))
+    }
+
+    /// Today's synthetic usage per 15-minute slot, local midnight to `now`, for the tools that keep
+    /// event times (Codex, Claude Code, Grok Build): quiet at night, busy in the afternoon.
+    private static func usageSlots(rows: [(service: String, model: String, project: String, base: Double)],
+                                   owners: [String: [String]]) -> [UsageSlotPoint] {
+        let first = Int64(Calendar.current.startOfDay(for: now).timeIntervalSince1970 / 900)
+        let last = Int64(now.timeIntervalSince1970 / 900)
+        var slots: [UsageSlotPoint] = []
+        for quarter in first...max(first, last) {
+            let hour = Double(quarter - first) / 4
+            let curve = max(0, sin((hour - 7) / 16 * .pi)) + (hour < 2 ? 0.25 : 0)
+            for (index, row) in rows.enumerated() where row.service != "droid" {
+                let noise = abs(sin(Double(quarter) * 12.9898 + Double(index) * 78.233) * 43_758.5453)
+                    .truncatingRemainder(dividingBy: 1)
+                let tokens = Int64(row.base / 40 * curve * (0.3 + noise))
+                guard tokens > 0 else { continue }
+                slots.append(UsageSlotPoint(quarter: quarter, point: UsageHistoryPoint(
+                    day: utcDay(Date(timeIntervalSince1970: Double(quarter) * 900)), service: row.service,
+                    accountID: UsageHistory.owner(service: row.service, accountID: nil, accounts: owners),
+                    model: row.model, project: row.project, tokens: tokens, costUSD: Double(tokens) * 4.2e-6)))
+            }
+        }
+        return slots
     }
 
     /// Synthetic sessions for one demo day: each transcript point becomes a session; the first two
@@ -3401,7 +3500,9 @@ enum DemoData {
         minutesAgo: Int,
         messages: Int,
         tokens: Int64? = nil,
-        archived: Bool = false
+        archived: Bool = false,
+        appSource: ChatThreadSource = .codex,
+        model: String? = nil
     ) -> ChatThreadSummary {
         ChatThreadSummary(
             id: id,
@@ -3415,7 +3516,9 @@ enum DemoData {
             fileByteCount: Int64(messages * 2_048),
             source: paths.sharedRoot.appending(path: "sessions/\(id).jsonl"),
             unreadableRecordCount: 0,
-            totalTokens: tokens)
+            totalTokens: tokens,
+            appSource: appSource,
+            model: model)
     }
 }
 #endif

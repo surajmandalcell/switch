@@ -106,6 +106,10 @@ enum MenuBarPresentation {
     var pool: String? = nil
     /// A heading row: the pool name, in the label column's start, over that pool's rows.
     var isHeading = false
+    /// The reported window title, which Choose Bars keys its picks by.
+    var key: String? = nil
+    /// Shown in the collapsed row; only Choose Bars picks set it false.
+    var atGlance = true
   }
 
   /// A window title split into its extra pool and its full period word.
@@ -182,6 +186,41 @@ enum MenuBarPresentation {
     return result
   }
 
+  /// The service's Choose Bars picks over the grouped rows. With no picks: the first two bars at a
+  /// glance, every bar expanded. A picked glance bar always stays when expanded, and a heading is at a
+  /// glance when one of its pool's bars is.
+  static func chosen(_ rows: [Line], _ choices: MenuBarBarChoices, expanded: Bool) -> [Line] {
+    let all = grouped(rows)
+    guard !choices.isDefault else { return expanded ? all : collapsed(all) }
+    let firstTwo = Set(collapsed(all).filter { !$0.isHeading }.compactMap(\.key))
+    let kept: [Line] = rows.compactMap { row in
+      var row = row
+      let key = row.key ?? ""
+      row.atGlance = choices.glance[key] ?? firstTwo.contains(key)
+      return row.atGlance || choices.expanded[key] ?? true ? row : nil
+    }
+    let lines = grouped(kept).map { line -> Line in
+      guard line.isHeading else { return line }
+      var heading = line
+      heading.atGlance = kept.contains { $0.pool == line.label && $0.atGlance }
+      return heading
+    }
+    return expanded ? lines : lines.filter(\.atGlance)
+  }
+
+  /// Every bar title the service's accounts report, empty bars too, in popover order.
+  static func barTitles(_ accounts: [MenuBarAccountSnapshot]) -> [String] {
+    var titles: [String] = []
+    for usage in accounts.compactMap(\.usage) {
+      let reported = usage.providerWindows.map { $0.map(\.title) } ?? [usage.primaryLabel, usage.secondaryLabel]
+      for title in reported where !titles.contains(title) { titles.append(title) }
+    }
+    return grouped(titles.map {
+      Line(label: nil, used: nil, resetsAt: nil, minutes: nil, balance: nil,
+        pool: windowName(minutes: nil, title: $0).pool, key: $0)
+    }).compactMap(\.key)
+  }
+
   enum Content: Equatable { case signIn, lines([Line]) }
 
   static func content(for account: MenuBarAccountSnapshot, expanded: Bool = true) -> Content {
@@ -191,12 +230,11 @@ enum MenuBarPresentation {
     }
     if let providerWindows = usage.providerWindows, !providerWindows.isEmpty {
       let visible = providerWindows.filter { $0.used != nil || $0.balance?.isEmpty == false }
-      let rows = grouped(visible.map {
+      return .lines(chosen(visible.map {
         let name = windowName(minutes: $0.minutes, title: $0.title)
         return Line(label: name.label, used: $0.used, resetsAt: $0.resetsAt, minutes: $0.minutes,
-          balance: $0.balance, helpTitle: $0.title, pool: name.pool)
-      })
-      return .lines(expanded ? rows : collapsed(rows))
+          balance: $0.balance, helpTitle: $0.title, pool: name.pool, key: $0.title)
+      }, account.barChoices, expanded: expanded))
     }
     var windows: [(title: String, used: Int?, reset: Date?, minutes: Int?, detail: String?)] = []
     if usage.usedPercentage != nil || usage.primaryDetail?.isEmpty == false {
@@ -210,12 +248,11 @@ enum MenuBarPresentation {
       return .lines([Line(
         label: nil, used: nil, resetsAt: nil, minutes: nil, balance: balance)])
     }
-    let rows = grouped(windows.map {
+    return .lines(chosen(windows.map {
       let name = windowName(minutes: $0.minutes, title: $0.title)
       return Line(label: name.label, used: $0.used, resetsAt: $0.reset, minutes: $0.minutes,
-        balance: $0.used == nil ? $0.detail : nil, pool: name.pool)
-    })
-    return .lines(expanded ? rows : collapsed(rows))
+        balance: $0.used == nil ? $0.detail : nil, pool: name.pool, key: $0.title)
+    }, account.barChoices, expanded: expanded))
   }
 
   static func lines(for account: MenuBarAccountSnapshot, expanded: Bool = false) -> [Line] {
@@ -581,15 +618,30 @@ struct MenuBarRow: View, Equatable {
         .padding(.trailing, account.isVerified ? 90 : 60)
     case .lines(let lines):
       let shown = P.lines(for: account).count
-      VStack(spacing: P.lineSpacing) {
-        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-          if index < shown { lineView(line) }
-          else { lineView(line).modifier(MenuBarRowMotion(store: store, id: account.id, region: .reveal)) }
+      if account.barChoices.isDefault {
+        VStack(spacing: P.lineSpacing) {
+          ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+            if index < shown { lineView(line) }
+            else { lineView(line).modifier(MenuBarRowMotion(store: store, id: account.id, region: .reveal)) }
+          }
         }
+        .fixedSize(horizontal: false, vertical: true)
+        .modifier(MenuBarRowMotion(store: store, id: account.id, region: .lines(shown, lines.count)))
+        .padding(.leading, P.tileSize + P.tileSpacing)
+      } else {
+        // Chosen bars: an expanded-only bar can sit between glance bars, so each one opens in place.
+        VStack(spacing: P.lineSpacing) {
+          ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+            if line.atGlance { lineView(line) }
+            else {
+              lineView(line).modifier(MenuBarRowMotion(store: store, id: account.id, region: .reveal))
+                .modifier(MenuBarRowMotion(store: store, id: account.id, region: .lines(0, 1)))
+            }
+          }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.leading, P.tileSize + P.tileSpacing)
       }
-      .fixedSize(horizontal: false, vertical: true)
-      .modifier(MenuBarRowMotion(store: store, id: account.id, region: .lines(shown, lines.count)))
-      .padding(.leading, P.tileSize + P.tileSpacing)
     }
   }
 
