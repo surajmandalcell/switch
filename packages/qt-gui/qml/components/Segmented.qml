@@ -39,14 +39,16 @@ Item {
   SpringValue { id: px }
   SpringValue { id: pw }
 
+  property bool ready: false
+  // A binding on `current` can fire before the SpringValue children finish; Qt 6.10 then has no `snap` yet.
   function place(animate) {
     var it = rep.itemAt(current)
-    if (!it) return
+    if (!it || !ready) return
     if (animate && Theme.motion && !Theme.reduceMotion) { px.target = it.x + 2; pw.target = it.width }
     else { px.snap(it.x + 2); pw.snap(it.width) }
   }
   onCurrentChanged: place(true)
-  Component.onCompleted: place(false)
+  Component.onCompleted: { ready = true; place(false) }
 
   Row {
     id: strip
