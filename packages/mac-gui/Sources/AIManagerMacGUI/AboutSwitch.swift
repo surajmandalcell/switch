@@ -6,6 +6,7 @@ import SwiftUI
 private enum AboutMetrics {
   static let window = CGSize(width: 380, height: 480)
   static let heroTop: CGFloat = 10
+  static let heroBottom: CGFloat = 14
   static let heroIcon: CGFloat = 84
   static let heroIconShadow = (opacity: 0.18, radius: CGFloat(8), y: CGFloat(4))
   static let heroTitleTop: CGFloat = 10
@@ -241,7 +242,8 @@ struct SwitchAboutSettings: View {
 
   var body: some View {
     VStack(spacing: AIMTheme.cardGap) {
-      hero
+      // A titled card like every other Settings section, so About does not start bare under Reset.
+      AIMSection("About") { hero.padding(.bottom, AboutMetrics.heroBottom) }
       AIMSection("Links") {
         ForEach(SwitchAbout.links) { AboutLinkRow(link: $0) }
       }
