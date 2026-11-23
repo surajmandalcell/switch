@@ -17,6 +17,16 @@ struct HistoryPage: View {
   private static let pageSize = 100
   private static let rowHeight: CGFloat = 44
   @State private var shown: Int
+  @State private var appFilter = HistoryThreadFilter.load()
+  @State private var filterOpen = false
+  @ObservedObject private var copied = ChatCopyNotice.shared
+
+  /// The loaded threads the filter keeps.
+  // shortcut: filters only the newest 1000 threads the index returns; move into ChatHistoryIndex if lists grow past that.
+  private var threads: [ChatThreadSummary] {
+    appFilter.isEmpty ? model.chatHistory.threads
+      : model.chatHistory.threads.filter { HistoryThreadFilter.matches($0, appFilter) }
+  }
 
   var body: some View {
     // Two cards: the thread list and the selected conversation.
@@ -37,11 +47,45 @@ struct HistoryPage: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .task { await model.refreshChatHistory(query: threadQuery) }
+    #if AI_MANAGER_PREVIEW
+    // `-preview.historyFilterOpen YES` draws the real filter panel in place, because the
+    // offscreen snapshot window cannot host a popover window.
+    .overlay(alignment: .topLeading) {
+      if UserDefaults.standard.bool(forKey: "preview.historyFilterOpen") {
+        HistoryFilterPanel(threads: model.chatHistory.threads, selection: $appFilter)
+          .clipShape(RoundedRectangle(cornerRadius: 10))
+          .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AIMTheme.line))
+          .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+          .offset(x: 160, y: 52)
+      }
+    }
+    #endif
     .task(id: threadQuery) { await model.searchChatHistory(query: threadQuery) }
     .onChange(of: threadQuery) { _, query in
       shown = Self.pageSize
       UserDefaults.standard.set(query, forKey: ChatPlace.threadQueryKey)
     }
+    .onChange(of: appFilter) { _, filter in
+      shown = Self.pageSize
+      HistoryThreadFilter.save(filter)
+    }
+    .overlay(alignment: .bottom) {
+      if copied.visible {
+        Label("Copied", systemImage: AIMIcon.Name.check.symbol)
+          .labelStyle(AIMButtonLabelStyle())
+          .aimText(.body)
+          .padding(.horizontal, 12)
+          .frame(height: 28)
+          .background(AIMTheme.panel, in: Capsule())
+          .aimBorder(AIMTheme.line, in: Capsule())
+          .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+          .padding(.bottom, 20)
+          .transition(.opacity)
+          .allowsHitTesting(false)
+          .accessibilityAddTraits(.updatesFrequently)
+      }
+    }
+    .animation(AIMMotion.fade(AIMMotion.state), value: copied.visible)
     .onDisappear { ChatPlace.saveThreadsScroll() }
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
       ChatPlace.saveThreadsScroll()
@@ -71,6 +115,26 @@ struct HistoryPage: View {
           .monospacedDigit()
           .aimRolling(model.chatHistory.matchingThreadCount)
       }
+      filterButton
+    }
+  }
+
+  /// A ghost icon button: the glyph fills and takes the accent color while a filter is on.
+  private var filterButton: some View {
+    let active = !appFilter.isEmpty
+    let label = active ? "Filter conversations, \(appFilter.count) on" : "Filter conversations"
+    return Button { filterOpen.toggle() } label: {
+      Image(systemName: active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+        .aimFont(.body)
+        .foregroundStyle(active ? Color.accentColor : Color.secondary)
+        .frame(width: 20, height: 20)
+    }
+    .buttonStyle(AIMIconButtonStyle())
+    .help(label)
+    .accessibilityLabel(label)
+    .popover(isPresented: $filterOpen, arrowEdge: .bottom) {
+      HistoryFilterPanel(threads: model.chatHistory.threads, selection: $appFilter)
+        .focusEffectDisabled()
     }
   }
 
@@ -86,13 +150,19 @@ struct HistoryPage: View {
       if model.isChatHistoryLoading && model.chatHistory.threads.isEmpty {
         AIMLoadingRows(count: 8, rowHeight: Self.rowHeight)
           .frame(maxHeight: .infinity, alignment: .top)
-      } else if model.chatHistory.threads.isEmpty {
+      } else if threads.isEmpty {
         VStack(spacing: 4) {
           AIMIcon(name: .history).aimText(.section).foregroundStyle(.secondary)
-          Text(threadQuery.isEmpty ? "No conversations yet" : "No matching conversations")
-            .aimText(.body)
-          Text(threadQuery.isEmpty ? "New Codex chats appear here." : "Try another word or thread ID.")
-            .aimText(.secondary)
+          if !model.chatHistory.threads.isEmpty {
+            Text("No conversations in this filter").aimText(.body)
+            Button("Reset filter") { appFilter = [] }
+              .buttonStyle(.plain).aimText(.secondary, tint: AIMTheme.linkColor)
+          } else {
+            Text(threadQuery.isEmpty ? "No conversations yet" : "No matching conversations")
+              .aimText(.body)
+            Text(threadQuery.isEmpty ? "New Codex chats appear here." : "Try another word or thread ID.")
+              .aimText(.secondary)
+          }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
@@ -100,13 +170,14 @@ struct HistoryPage: View {
         // the thin scroll bar sits in a fixed gutter at the trailing edge.
         AIMScrollView(name: "threads") {
           LazyVStack(spacing: 0) {
-            ForEach(ChatThreadDayGroup.groups(Array(model.chatHistory.threads.prefix(shown)))) { group in
+            let visible = threads
+            ForEach(ChatThreadDayGroup.groups(Array(visible.prefix(shown)))) { group in
               Section {
                 ForEach(group.threads) { thread in
                   ChatThreadButton(thread: thread, selected: thread.id == model.selectedChatID) {
                     Task { await model.selectChat(thread.id) }
                   }
-                  .onAppear { if thread.id == model.chatHistory.threads.prefix(shown).last?.id { shown += Self.pageSize } }
+                  .onAppear { if thread.id == visible.prefix(shown).last?.id { shown += Self.pageSize } }
                 }
               } header: {
                 Text(group.title)
@@ -129,6 +200,9 @@ struct HistoryPage: View {
 
   private var historyCountText: String {
     let result = model.chatHistory
+    if !appFilter.isEmpty {
+      return "\(threads.count.formatted()) of \(result.totalThreadCount.formatted()) conversations"
+    }
     if threadQuery.isEmpty { return "\(result.totalThreadCount.formatted()) conversations" }
     return "\(result.matchingThreadCount.formatted()) of \(result.totalThreadCount.formatted()) conversations"
   }
@@ -252,12 +326,117 @@ struct ChatThreadRow: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("\(thread.title), \(thread.appSource.displayLabel), \(subtitle)")
-    .contextMenu { ChatTitleCopyButton(title: thread.title) }
+    .contextMenu { ChatThreadCopyItems(thread: thread) }
   }
 
   private var subtitle: String {
     [thread.model, thread.updatedAt.formatted(date: .omitted, time: .shortened)]
       .compactMap { $0 }.joined(separator: " · ")
+  }
+}
+
+/// The History list's filter: the apps whose conversations show. An empty set shows all.
+/// History reads only Codex transcripts today (ChatHistoryIndex), and a transcript does not
+/// record the signed-in account, so the choices are Codex and its apps, not accounts.
+enum HistoryThreadFilter {
+  static let defaultsKey = "history.appFilter"
+  static let provider = ProviderID.codex
+
+  static func load(from defaults: UserDefaults = .standard) -> Set<ChatThreadSource> {
+    Set((defaults.stringArray(forKey: defaultsKey) ?? []).compactMap(ChatThreadSource.init(rawValue:)))
+  }
+
+  static func save(_ selection: Set<ChatThreadSource>, to defaults: UserDefaults = .standard) {
+    defaults.set(selection.map(\.rawValue).sorted(), forKey: defaultsKey)
+  }
+
+  static func matches(_ thread: ChatThreadSummary, _ selection: Set<ChatThreadSource>) -> Bool {
+    selection.isEmpty || selection.contains(thread.appSource)
+  }
+
+  /// Checks or unchecks `sources`. Every app present checked again means All (empty);
+  /// unchecking the last app keeps the selection, so the list never goes blank by accident.
+  static func toggling(
+    _ sources: Set<ChatThreadSource>, in selection: Set<ChatThreadSource>, present: Set<ChatThreadSource>
+  ) -> Set<ChatThreadSource> {
+    var next = selection.isEmpty ? present : selection
+    if sources.isSubset(of: next) { next.subtract(sources) } else { next.formUnion(sources) }
+    if next.isEmpty { return selection }
+    return present.isSubset(of: next) ? [] : next
+  }
+}
+
+/// The filter popover: All providers, each provider with its apps, then Reset. Rows stay open
+/// after a click, so several apps can be checked in one visit.
+private struct HistoryFilterPanel: View {
+  let threads: [ChatThreadSummary]
+  @Binding var selection: Set<ChatThreadSource>
+
+  private var counts: [ChatThreadSource: Int] {
+    threads.reduce(into: [:]) { $0[$1.appSource, default: 0] += 1 }
+  }
+
+  var body: some View {
+    let counts = counts
+    let present = Set(counts.keys)
+    let sources = ChatThreadSource.allCases.filter(present.contains)
+    VStack(alignment: .leading, spacing: 0) {
+      row("All providers", count: threads.count, checked: selection.isEmpty) { selection = [] }
+      AIMHairline().padding(.vertical, 4)
+      row("Codex", provider: HistoryThreadFilter.provider, count: threads.count,
+        checked: selection.isEmpty || present.isSubset(of: selection)) {
+        selection = HistoryThreadFilter.toggling(present, in: selection, present: present)
+      }
+      ForEach(sources, id: \.self) { source in
+        row(source == .codex ? "Other Codex" : source.displayLabel, indent: true, count: counts[source] ?? 0,
+          checked: selection.isEmpty || selection.contains(source)) {
+          selection = HistoryThreadFilter.toggling([source], in: selection, present: present)
+        }
+      }
+      AIMHairline().padding(.vertical, 4)
+      row("Reset", count: nil, checked: false) { selection = [] }
+        .disabled(selection.isEmpty)
+    }
+    .padding(6)
+    .frame(width: 260)
+    .background(AIMTheme.page)
+  }
+
+  private func row(
+    _ title: String, provider: ProviderID? = nil, indent: Bool = false, count: Int?, checked: Bool,
+    action: @escaping () -> Void
+  ) -> some View {
+    HistoryFilterRow(action: action) {
+      AIMIcon(name: .check).aimFont(.secondary).frame(width: 14).opacity(checked ? 1 : 0)
+        .accessibilityHidden(true)
+      if let provider { ProviderMark(providerID: provider, size: 16) }
+      Text(title).aimText(.body).lineLimit(1).padding(.leading, indent ? 22 : 0)
+      Spacer(minLength: 8)
+      if let count { Text(count.formatted()).aimText(.secondary).monospacedDigit() }
+    }
+    .accessibilityAddTraits(checked ? .isSelected : [])
+  }
+}
+
+private struct HistoryFilterRow<Content: View>: View {
+  let action: () -> Void
+  @ViewBuilder var content: Content
+  @Environment(\.isEnabled) private var isEnabled
+  @State private var hovering = false
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 6) { content }
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+          .fill(hovering && isEnabled ? AIMTheme.rowHover : Color.clear))
+        .opacity(isEnabled ? 1 : 0.45)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { hovering = $0 }
+    .animation(AIMMotion.fade(AIMMotion.hover), value: hovering)
   }
 }
 
@@ -350,12 +529,14 @@ private struct ChatDetailPane: View {
   @ViewBuilder private var header: some View {
     if let thread = selectedSummary {
       VStack(alignment: .leading, spacing: 2) {
-        Text(thread.title).aimText(.section).lineLimit(1)
+        // Selectable text drops the ellipsis on macOS, so a long title is copied from its menu instead.
+        Text(thread.title).aimText(.section).lineLimit(1).truncationMode(.tail)
+          .frame(maxWidth: .infinity, alignment: .leading)
           .help(thread.title)
-          .textSelection(.enabled)
-          .contextMenu { ChatTitleCopyButton(title: thread.title) }
+          .contextMenu { ChatThreadCopyItems(thread: thread) }
         HStack(spacing: AIMTheme.sectionSpacing) {
-          Text(threadContext(thread)).lineLimit(1).help(threadContext(thread))
+          Text(threadContext(thread)).lineLimit(1).truncationMode(.tail).help(threadContext(thread))
+            .contextMenu { ChatThreadCopyItems(thread: thread) }
           Spacer(minLength: AIMTheme.rowSpacing)
           HStack(spacing: 6) {
             Text("\(thread.messageCount.formatted()) messages")
@@ -387,16 +568,17 @@ private struct ChatDetailPane: View {
           : model.selectedChat.map { "\($0.matchingMessageCount.formatted()) matches" }, isLoading: isSearching)
 
       GeometryReader { geometry in
-        let unit = max(0, geometry.size.width - 48) / 548
+        // Four filter toggles share the width; the copy action sits apart after a divider.
+        let unit = max(0, geometry.size.width - 36 - 57) / 456
         HStack(spacing: 12) {
-          ChatFilteredCopyButton(messages: model.selectedChat.map(displayedMessages) ?? [])
-            .frame(width: 92 * unit)
           ForEach(ChatFilterChoice.allCases) { choice in
             ChatFilterButton(choice: choice, selected: messageFilter.contains(choice.filter)) {
                 toggleFilter(choice.filter)
             }
             .frame(width: choice.widthWeight * unit)
           }
+          Rectangle().fill(AIMTheme.line).frame(width: 1, height: 20)
+          ChatFilteredCopyButton(messages: model.selectedChat.map(displayedMessages) ?? [])
         }
       }
       .frame(height: 32)
@@ -642,15 +824,19 @@ struct ChatFilteredCopyButton: View {
         withAnimation(AIMMotion.fade(AIMMotion.state)) { copied = false }
       }
     } label: {
-      Label("Copy",
+      // An action, not a filter: a ghost icon with no rim and no selected fill.
+      Label("Copy conversation",
         systemImage: copied ? AIMIcon.Name.check.symbol : AIMIcon.Name.copy.symbol)
+        .labelStyle(.iconOnly)
         .contentTransition(.opacity)
-        .frame(maxWidth: .infinity)
+        .aimFont(.body)
+        .foregroundStyle(copied ? AIMTheme.green : Color.secondary)
+        .frame(width: 24, height: 24)
     }
-    .buttonStyle(ChatToolbarButtonStyle())
+    .buttonStyle(AIMIconButtonStyle())
     .disabled(messages.isEmpty)
-    .help("Copy the visible messages")
-    .accessibilityLabel(copied ? "Copied" : "Copy")
+    .help(copied ? "Copied" : "Copy conversation")
+    .accessibilityLabel(copied ? "Copied" : "Copy conversation")
   }
 }
 
@@ -694,12 +880,43 @@ private struct ChatToolbarButtonFace: View {
   }
 }
 
-private struct ChatTitleCopyButton: View {
-  let title: String
+/// The right-click menu of a conversation: copy its title, path, thread ID, or model.
+struct ChatThreadCopyItems: View {
+  let thread: ChatThreadSummary
 
   var body: some View {
-    Button("Copy title") {
-      ChatPasteboard.copy(title)
+    ChatCopyItem(title: "Copy Title", text: thread.title)
+    if let directory = thread.workingDirectory { ChatCopyItem(title: "Copy Path", text: directory) }
+    ChatCopyItem(title: "Copy Thread ID", text: thread.threadID)
+    if let model = thread.model { ChatCopyItem(title: "Copy Model", text: model) }
+  }
+}
+
+struct ChatCopyItem: View {
+  let title: String
+  let text: String
+
+  var body: some View {
+    Button(title) {
+      ChatPasteboard.copy(text)
+      ChatCopyNotice.shared.show()
+    }
+  }
+}
+
+/// The brief "Copied" note at the bottom of History after a menu copy.
+@MainActor final class ChatCopyNotice: ObservableObject {
+  static let shared = ChatCopyNotice()
+  @Published private(set) var visible = false
+  private var hide: Task<Void, Never>?
+
+  func show() {
+    visible = true
+    hide?.cancel()
+    hide = Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1.2))
+      guard !Task.isCancelled else { return }
+      visible = false
     }
   }
 }
@@ -775,6 +992,12 @@ private struct ChatMessageRow: View {
     }
     .aimText(.secondary)
     .frame(height: 20)
+    .contentShape(Rectangle())
+    .contextMenu {
+      ChatCopyItem(title: "Copy Message", text: message.text)
+      if let model = message.model { ChatCopyItem(title: "Copy Model", text: model) }
+      if let timestamp = message.timestamp { ChatCopyItem(title: "Copy Date", text: ChatDate.text(timestamp)) }
+    }
   }
 
 }
