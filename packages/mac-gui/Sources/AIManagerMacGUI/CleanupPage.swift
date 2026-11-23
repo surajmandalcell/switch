@@ -166,17 +166,7 @@ struct CleanupPage: View {
       } else if scan == nil {
         EmptyView()
       } else {
-        conversationCard
-        // Expanded lists can contain native tables; flatten their SwiftUI headers separately.
-        if expanded.isEmpty {
-          categoriesCard.drawingGroup()
-        } else {
-          categoriesCard
-        }
-        if source?.tool == .codex, !samples.isEmpty || sizes.conversationBytes > 0 { cacheCard }
-        selectionCard.drawingGroup()
-        if let review { reviewCard(review) }
-        if !trash.isEmpty { trashCard }
+        cleanupCards
       }
       errorCard
     }
@@ -286,50 +276,19 @@ struct CleanupPage: View {
     .disabled(busy)
   }
 
-  private var categoriesCard: some View {
-    let categories = shownCategories
-    // A pasted-images row shrinks a chat that its Conversations row already counts, so the totals skip it.
-    let items = categories.filter { $0.id != "images" }.flatMap { visible($0) }
-    let total = scan?.totalBytes ?? 0
-    // The last row's text sits 9.5 pt above its bottom edge; 4.5 more makes the card's 14 pt end.
-    return AIMCard(title: "Files you can clear", divider: true, bottomInset: 4.5, accessory: {
-      Text("\(items.count.formatted()) items · \(MaintenanceStore.size(items.reduce(0) { $0 + $1.bytes })) of \(MaintenanceStore.size(total))")
-        .aimText(.secondary).monospacedDigit().aimRolling(items.count)
-    }) {
-      if categories.isEmpty {
-        HStack {
-          Text(range.nothingText(tool: source?.title ?? "This tool", total: total)).aimText(.secondary)
-          Spacer()
-          if range != .all { AIMButton(title: "Show all time") { range = .all } }
-        }
-        .padding(.horizontal, AIMTheme.cardInset).padding(.vertical, AIMTheme.contentInset)
-      } else {
-        VStack(spacing: 0) {
-          ForEach(Array(categories.enumerated()), id: \.element.id) { index, category in
-            if index > 0 { AIMRowSeparator() }
-            categoryBlock(category)
-          }
-        }
-        // The first row's fill sits as far below the hairline as it does from the card's sides.
-        .padding(.top, cleanupHoverInset - AIMTheme.highlightInset)
-      }
-    }
-    .disabled(busy)
-  }
-
   private func categoryBlock(_ category: CleanupCategory) -> some View {
     let items = visible(category)
     let open = expanded.contains(category.id)
+    let tier: CleanupTier = category.risk == .safe ? .safe : .work
     return VStack(spacing: 0) {
       CleanupRowBox(minHeight: 52) {
         disclosure(open: open) { toggleExpanded(category.id) }
         CleanupCheck(state: state(of: items), label: category.title) { toggle(items) }
+        Image(systemName: tier.rowSymbol).aimFont(.section).foregroundStyle(tier.color)
+          .frame(width: 18).help(tier.title).accessibilityLabel(tier.title)
         VStack(alignment: .leading, spacing: 2) {
-          HStack(spacing: 6) {
-            Text(category.title).aimText(.body).lineLimit(1)
-              .help(category.title)
-            if category.risk == .caution { Badge(text: "Check first", tint: AIMTheme.amber) }
-          }
+          Text(category.title).aimText(.body).lineLimit(1)
+            .help(category.title)
           Text(category.detail).aimText(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             .help(category.detail)
         }
@@ -448,24 +407,6 @@ struct CleanupPage: View {
 
   // MARK: Selection and review
 
-  private var selectionCard: some View {
-    AIMSection {
-      if let untouched = scan?.untouchedText {
-        HStack(spacing: 6) {
-          AIMIcon(name: .info)
-          Text(untouched)
-        }
-        .aimText(.secondary)
-      }
-      HStack {
-        Text(hasSelection ? "\(selectedItems.count.formatted()) items selected" : "Nothing selected").aimText(.body)
-        Text(MaintenanceStore.size(selectedBytes)).aimText(.secondary).monospacedDigit().aimRolling(selectedBytes)
-        Spacer()
-        AIMButton(title: "Review", tone: .primary, disabled: busy || !hasSelection) { Task { await makeReview() } }
-      }
-    }
-  }
-
   private func reviewCard(_ review: CleanupReview) -> some View {
     AIMSection("Review before cleanup") {
       ForEach(review.groups) { group in
@@ -539,25 +480,6 @@ struct CleanupPage: View {
       note += " Usage totals for \(source?.title ?? "this tool") are read from its saved chats, so removed chats lower them."
     }
     return note
-  }
-
-  private var trashCard: some View {
-    AIMSection("Recoverable trash", accessory: {
-      Text("\(trash.count.formatted()) \(trash.count == 1 ? "batch" : "batches")").aimText(.secondary)
-    }) {
-      ForEach(trash) { batch in
-        HStack(spacing: AIMTheme.sectionSpacing) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text("\(batch.items.count.formatted()) items · \(MaintenanceStore.size(batch.bytes))").aimText(.body)
-            Text(batch.createdAt.formatted(date: .abbreviated, time: .shortened)).aimText(.secondary).monospacedDigit()
-          }
-          Spacer()
-          AIMButton(title: "Restore", disabled: busy) { Task { await restore(batch) } }
-          AIMButton(title: "Remove for good", disabled: busy) { removingBatch = batch }
-        }
-      }
-    }
-    .transition(.opacity)
   }
 
   @ViewBuilder private var errorCard: some View {
@@ -666,5 +588,232 @@ struct CleanupPage: View {
     removingBatch = nil
     do { try await model.emptyCleanup(source, batch.id); await reload() }
     catch { self.error = error.localizedDescription }
+  }
+}
+
+// MARK: - Risk tiers
+
+/// How much a cleanup costs you: safe files come back by themselves, your work waits in the
+/// trash, and removing the trash is final.
+enum CleanupTier {
+  case safe, work, trash
+
+  var color: Color {
+    switch self {
+    case .safe: AIMTheme.green
+    case .work: AIMTheme.amber
+    case .trash: AIMTheme.red
+    }
+  }
+  var symbol: String {
+    switch self {
+    case .safe: "checkmark.shield.fill"
+    case .work: "exclamationmark.triangle.fill"
+    case .trash: "trash.fill"
+    }
+  }
+  var rowSymbol: String { self == .safe ? "checkmark.circle.fill" : symbol }
+  var title: String {
+    switch self {
+    case .safe: "Safe to clear"
+    case .work: "Your work, check first"
+    case .trash: "In the trash"
+    }
+  }
+  var note: String {
+    switch self {
+    case .safe: "Logs, caches and old copies. The tools make them again when needed."
+    case .work: "Chats and files you made. They go to the trash first, so you can bring them back."
+    case .trash: "Restore brings items back. Remove for good frees the space and cannot be undone."
+    }
+  }
+}
+
+/// The tinted head of a risk group: the tier's glyph and name, what it means, and its size.
+struct CleanupTierHeader: View {
+  let tier: CleanupTier
+  let size: String
+  let detail: String
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: tier.symbol).aimFont(.section).imageScale(.large).foregroundStyle(tier.color)
+        .frame(width: 22).accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(tier.title).aimText(.section)
+        Text(tier.note).aimText(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+      }
+      Spacer(minLength: AIMTheme.rowSpacing)
+      VStack(alignment: .trailing, spacing: 2) {
+        Text(size).aimText(.section).monospacedDigit()
+        Text(detail).aimText(.secondary).monospacedDigit()
+      }
+    }
+    .padding(.horizontal, AIMTheme.cardInset).padding(.vertical, 12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(tier.color.opacity(0.10))
+    .accessibilityElement(children: .combine)
+  }
+}
+
+/// A thin bar of what the tool uses, split by tier.
+struct CleanupTierBar: View {
+  let parts: [(CleanupTier?, Int64)]
+
+  var body: some View {
+    let total = max(parts.reduce(0) { $0 + $1.1 }, 1)
+    GeometryReader { proxy in
+      HStack(spacing: 2) {
+        ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+          if part.1 > 0 {
+            Capsule().fill(part.0?.color ?? AIMTheme.track)
+              .frame(width: max(4, (proxy.size.width - 4) * CGFloat(part.1) / CGFloat(total)))
+          }
+        }
+      }
+    }
+    .frame(height: 8)
+    .accessibilityHidden(true)
+  }
+}
+
+extension CleanupPage {
+  private func bytes(_ categories: [CleanupCategory]) -> Int64 {
+    // A pasted-images row shrinks a chat that its Conversations row already counts, so totals skip it.
+    categories.filter { $0.id != "images" }.flatMap { visible($0) }.reduce(0) { $0 + $1.bytes }
+  }
+  private func categories(_ tier: CleanupTier) -> [CleanupCategory] {
+    shownCategories.filter { tier == .safe ? $0.risk == .safe : $0.risk != .safe }
+  }
+  private var trashBytes: Int64 { trash.reduce(0) { $0 + $1.bytes } }
+  private func items(_ count: Int) -> String { "\(count.formatted()) \(count == 1 ? "item" : "items")" }
+
+  /// The trash as the last, red group: Restore stays plain, Remove for good is the red action.
+  private var trashGroup: some View {
+    AIMCard(bottomInset: 0) {
+      VStack(spacing: 0) {
+        CleanupTierHeader(tier: .trash, size: MaintenanceStore.size(trashBytes),
+                          detail: "\(trash.count.formatted()) \(trash.count == 1 ? "batch" : "batches")")
+        AIMHairline()
+        if trash.isEmpty {
+          Text("The trash is empty.").aimText(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, AIMTheme.cardInset).padding(.vertical, 12)
+        }
+        ForEach(Array(trash.enumerated()), id: \.element.id) { index, batch in
+          if index > 0 { AIMRowSeparator() }
+          HStack(spacing: AIMTheme.sectionSpacing) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text("\(items(batch.items.count)) · \(MaintenanceStore.size(batch.bytes))").aimText(.body)
+              Text("Moved \(batch.createdAt.formatted(date: .abbreviated, time: .shortened))").aimText(.secondary).monospacedDigit()
+            }
+            Spacer()
+            AIMButton(title: "Restore", icon: .refresh, disabled: busy) { Task { await restore(batch) } }
+            Button(role: .destructive) { removingBatch = batch } label: {
+              Label("Remove for good", systemImage: "trash").foregroundStyle(AIMTheme.red)
+            }
+            .buttonStyle(AIMPushButtonStyle()).disabled(busy)
+          }
+          // 12 pt, the same as the tinted header above, so the card's top and bottom padding match.
+          .padding(.horizontal, AIMTheme.cardInset).padding(.vertical, 12)
+        }
+      }
+    }
+    .transition(.opacity)
+  }
+
+  /// The selection line split by tier, so the cost of the cleanup shows before Review.
+  private var tierSelectionCard: some View {
+    let risk = Dictionary((scan?.categories ?? []).flatMap { c in c.items.map { ($0.id, c.risk) } }, uniquingKeysWith: { a, _ in a })
+    let picked = selectedItems
+    let safe = picked.filter { risk[$0.id] == .safe }.reduce(0) { $0 + $1.bytes }
+    let work = picked.filter { risk[$0.id] != .safe }.reduce(0) { $0 + $1.bytes }
+    return AIMSection {
+      if let untouched = scan?.untouchedText {
+        HStack(spacing: 6) { AIMIcon(name: .info); Text(untouched) }.aimText(.secondary)
+      }
+      HStack(spacing: 16) {
+        Text(hasSelection ? "\(picked.count.formatted()) items selected" : "Nothing selected").aimText(.body)
+        dot(.safe, "\(MaintenanceStore.size(safe)) safe")
+        dot(.work, "\(MaintenanceStore.size(work)) of your work")
+        Spacer()
+        AIMButton(title: "Review", tone: .primary, disabled: busy || !hasSelection) { Task { await makeReview() } }
+      }
+    }
+  }
+
+  private func dot(_ tier: CleanupTier, _ text: String) -> some View {
+    HStack(spacing: 6) {
+      Circle().fill(tier.color).frame(width: 8, height: 8)
+      Text(text).aimText(.secondary).monospacedDigit()
+    }
+  }
+
+  // MARK: Summary first
+
+  /// One answer at the top ("1.2 GB can be freed safely") with one button, then every row with its risk glyph.
+  @ViewBuilder var cleanupCards: some View {
+    let safeList = categories(.safe)
+    let safeBytes = bytes(safeList)
+    let workBytes = bytes(categories(.work))
+    let total = scan?.totalBytes ?? 0
+    AIMCard(bottomInset: 0) {
+      HStack(alignment: .center, spacing: AIMTheme.sectionSpacing) {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("\(MaintenanceStore.size(safeBytes)) can be freed safely").aimText(.title).monospacedDigit()
+          Text("\(source?.title ?? "This tool") uses \(MaintenanceStore.size(total)). Logs, caches and old copies come back by themselves.")
+            .aimText(.secondary)
+          CleanupTierBar(parts: [(.safe, safeBytes), (.work, workBytes), (nil, max(0, total - safeBytes - workBytes))])
+            .padding(.top, 2)
+          HStack(spacing: 16) {
+            dot(.safe, "Safe \(MaintenanceStore.size(safeBytes))")
+            dot(.work, "Your work \(MaintenanceStore.size(workBytes))")
+            HStack(spacing: 6) {
+              Circle().fill(AIMTheme.track).frame(width: 8, height: 8)
+              Text("In use or kept \(MaintenanceStore.size(max(0, total - safeBytes - workBytes)))").aimText(.secondary).monospacedDigit()
+            }
+          }
+        }
+        Spacer(minLength: AIMTheme.sectionSpacing)
+        AIMButton(title: "Clear \(MaintenanceStore.size(safeBytes)) safely", icon: .cleanup, tone: .primary,
+                  disabled: busy || safeBytes == 0) {
+          selection = Set(safeList.flatMap { visible($0) }.map(\.id))
+          selectionRevision &+= 1
+          useSamples = false
+          clearIndex = false
+          Task { await makeReview() }
+        }
+      }
+      .padding(.horizontal, AIMTheme.cardInset).padding(.vertical, 18)
+    }
+    if let review { reviewCard(review) }
+    AIMCard(title: "Everything Cleanup found", divider: true, bottomInset: 4.5, accessory: {
+      HStack(spacing: 16) {
+        dot(.safe, "Safe")
+        dot(.work, "Check first")
+      }
+    }) {
+      if shownCategories.isEmpty {
+        HStack {
+          Text(range.nothingText(tool: source?.title ?? "This tool", total: total)).aimText(.secondary)
+          Spacer()
+          if range != .all { AIMButton(title: "Show all time") { range = .all } }
+        }
+        .padding(.horizontal, AIMTheme.cardInset).padding(.vertical, AIMTheme.contentInset)
+      } else {
+        VStack(spacing: 0) {
+          ForEach(Array((categories(.safe) + categories(.work)).enumerated()), id: \.element.id) { index, category in
+            if index > 0 { AIMRowSeparator() }
+            categoryBlock(category)
+          }
+        }
+        .padding(.top, cleanupHoverInset - AIMTheme.highlightInset)
+      }
+    }
+    .disabled(busy)
+    if source?.tool == .codex, !samples.isEmpty || sizes.conversationBytes > 0 { cacheCard }
+    conversationCard
+    tierSelectionCard
+    if !trash.isEmpty { trashGroup }
   }
 }
