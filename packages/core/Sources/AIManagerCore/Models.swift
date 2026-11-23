@@ -110,6 +110,11 @@ public struct ManagerPaths: Sendable {
         )
     }
 
+    /// True outside a test home, or when `url` sits inside the test home.
+    public func allowsRead(_ url: URL) -> Bool {
+        isolationRoot.map { CoreSupportForPaths.contains(url, in: $0) } ?? true
+    }
+
     public static func environment(_ environment: [String: String] = ProcessInfo.processInfo.environment, fileManager: FileManager = .default) -> Self {
         var paths = standard(fileManager: fileManager)
         func url(_ key: String) -> URL? {
