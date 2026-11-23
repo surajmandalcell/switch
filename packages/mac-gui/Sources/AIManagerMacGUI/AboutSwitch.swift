@@ -42,7 +42,7 @@ enum SwitchAbout {
   nonisolated static let animationKey = "aboutAnimation"
   static let tagline = "Coding accounts and usage. Right in your menu bar."
   static let copyright = "© 2026 Suraj Mandal"
-  private static let repository = URL(string: "https://github.com/surajmandalcell/switch")!
+  private static let repository = URL(string: "https://github.com/samhqapp/switch")!
   static let website = AboutLink(label: "Website", title: "switch.samhq.app", url: URL(string: "https://switch.samhq.app")!)
   static let releaseNotes = AboutLink(
     label: "Release notes", title: "GitHub releases", url: repository.appendingPathComponent("releases"))

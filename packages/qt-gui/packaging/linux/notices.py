@@ -33,7 +33,7 @@ Source code of this Qt version:
   (qtbase, qtdeclarative, qtsvg and qtwayland -everywhere-src-{version} archives)
   https://code.qt.io/cgit/qt/ (git, tag v{version})
 On request we send the same sources on a physical medium for the cost of shipping, for three years from
-the release of this package. Ask through https://github.com/surajmandalcell/switch/issues.
+the release of this package. Ask through https://github.com/samhqapp/switch/issues.
 
 Shipped Qt files (module, license):""")
 for f in sorted(app.rglob("*")):
