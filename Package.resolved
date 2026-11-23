@@ -5,8 +5,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/samhqapp/indiecrumb-swift",
       "state" : {
-        "revision" : "07fd81fbebd199662ef4872287c34fafcd216ec9",
-        "version" : "0.2.1"
+        "revision" : "a399fd21e345dedd47798561e403db291a0788d7",
+        "version" : "0.3.0"
       }
     },
     {
