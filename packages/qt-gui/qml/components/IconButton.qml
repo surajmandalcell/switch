@@ -7,7 +7,7 @@ Item {
   id: b
   property string icon: ""
   property string tip: ""
-  property string tone: "normal"   // "normal" | "danger" | "active"
+  property string tone: "normal"   // "normal" | "danger" | "active" | "success"
   property real glyph: 14
   signal clicked()
   width: glyph
@@ -33,7 +33,7 @@ Item {
     anchors.centerIn: parent
     name: b.icon
     size: b.glyph
-    color: b.tone === "danger" ? Theme.red : (b.tone === "active" ? Theme.accent : Theme.secondary)
+    color: b.tone === "danger" ? Theme.red : (b.tone === "active" ? Theme.accent : (b.tone === "success" ? Theme.green : Theme.secondary))
   }
   HoverHandler { id: hover }
   ToolTipArea { text: b.tip }

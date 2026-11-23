@@ -112,7 +112,26 @@ Window {
                     easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut }
   function replayBars() { if (Theme.motion) barsIn.restart() }
 
-  Shortcut { sequence: "Escape"; onActivated: pop.close() }
+  // Service header menu: hide or show the service, Choose Bars… (off while the helper has no tray.bars)
+  function serviceMenu(anchor, group) {
+    popMenu.open(anchor, [(group.showsInTray ? "Hide from the " : "Show in the ") + Theme.trayName,
+                          { text: "Choose Bars…", enabled: Helper.hasMethod("tray.bars.get") }], -1, function (i) {
+      if (i === 0) pop.toggleHidden("menuBarHiddenServices", group.id)
+      else pop.chooseBars(group.id, group.name)
+    })
+  }
+  property var barsDialog: null
+  function chooseBars(id, name) {
+    if (!barsDialog) {
+      var c = Qt.createComponent("BarsDialog.qml")
+      if (c.status !== Component.Ready) { console.error("bars dialog failed to load: " + c.errorString()); return }
+      barsDialog = c.createObject(null)
+    }
+    close()
+    barsDialog.load(id, name)
+  }
+
+  Shortcut { sequence: "Escape"; onActivated: popMenu.visible ? popMenu.close() : pop.close() }
   Shortcut { sequence: "Ctrl+O"; onActivated: pop.openMain() }
   Shortcut { sequence: "Ctrl+R"; onActivated: refreshBtn.clicked() }
 
@@ -198,8 +217,16 @@ Window {
                 width: parent.width
                 height: 26
                 HoverHandler { id: gh }
+                // right-click: the Mac service menu, with Choose Bars (MenuBarBarsDialog)
+                MouseArea {
+                  id: ghMenu
+                  objectName: "pop-svc-menu-" + grp.group.id
+                  anchors.fill: parent
+                  acceptedButtons: Qt.RightButton
+                  onClicked: pop.serviceMenu(ghName, grp.group)
+                }
                 ProviderTile { y: 5; provider: grp.group.id; name: grp.group.name; size: 16 }
-                Txt { x: 24; anchors.verticalCenter: parent.verticalCenter; role: "secondary"; wght: 600; color: Theme.secondary; text: grp.group.name }
+                Txt { id: ghName; x: 24; anchors.verticalCenter: parent.verticalCenter; role: "secondary"; wght: 600; color: Theme.secondary; text: grp.group.name }
                 IconButton {
                   objectName: "pop-svc-eye-" + grp.group.id
                   x: parent.width - 18
@@ -266,6 +293,8 @@ Window {
           PopButton { square: true; icon: "gear"; name: "Settings"; onClicked: pop.openSettings() }
         }
       }
+      Item { id: popOverlay; anchors.fill: parent }
+      MenuPanel { id: popMenu; parent: popOverlay }
     }
   }
 }

@@ -1,10 +1,37 @@
 import Foundation
 import AIManagerCore
 
+public struct CleanupSummary: Encodable, Sendable {
+    public var safeBytes: Int64 = 0
+    public var yourWorkBytes: Int64 = 0
+    public var inUseBytes: Int64 = 0
+    public var safeSourceIDs: [String] = []
+
+    // shortcut: copy of CleanupPage.swift.CleanupPage.cleanupCards; delete when the Mac app adopts SwitchAppModel
+    init(_ scan: CleanupScan? = nil) {
+        guard let scan else { return }
+        for category in scan.categories {
+            let items = category.selectable
+            if category.risk == .safe {
+                safeSourceIDs.append(contentsOf: items.map(\.id))
+            }
+            // The image rewrite shrinks a file already counted in another category.
+            guard category.id != "images" else { continue }
+            let bytes = items.reduce(Int64(0)) { $0 + $1.bytes }
+            if category.risk == .safe { safeBytes += bytes }
+            else { yourWorkBytes += bytes }
+        }
+        inUseBytes = max(0, scan.totalBytes - safeBytes - yourWorkBytes)
+        if safeBytes == 0 { safeSourceIDs = [] }
+    }
+}
+
 /// Cleanup (architecture.md 2.9), as the Mac Cleanup page: scan a source, review the selected items into a plan,
 /// apply the plan to the trash, then restore or purge a trash batch. The engine keeps the last scan and the last
 /// plan, so a client sends ids, never file paths; a replaced id is `stale`.
 extension AppEngine {
+    public func cleanupSummary() -> CleanupSummary { cleanupScan?.summary ?? CleanupSummary() }
+
     /// One scan of a source: file metadata only. Codex also reads its conversation index for titles and dates.
     public func scanCleanup(sourceID: String, progress: (@Sendable (CleanupScanProgress) -> Void)? = nil) async throws
         -> (scanID: UUID, scan: CleanupScan) {
@@ -19,7 +46,9 @@ extension AppEngine {
             try AccountManager.scanCleanup(source, summaries: summaries) { progress?($0) }
         }.value
         let id = UUID()
-        cleanupScan = (id, source, Dictionary(scan.categories.flatMap(\.items).map { ($0.id, $0) }) { first, _ in first })
+        cleanupScan = (id, source,
+                       Dictionary(scan.categories.flatMap(\.items).map { ($0.id, $0) }) { first, _ in first },
+                       CleanupSummary(scan))
         cleanupPlan = nil
         return (id, scan)
     }
@@ -67,7 +96,10 @@ extension AppEngine {
                 samples = try await codexCache.cleanupSamples().filter { sampleIDs.contains($0.id) }
                 try await codexCache.removeCleanupSamples(samples)
             }
-            if clearIndex { try await index.clearCache() }
+            if clearIndex {
+                try await index.clearCache()
+                await self.claudeChatHistory.clearCache()
+            }
             await self.bumpHistoryVersion()
             await self.bumpUsageHistoryVersion()
             let notice = Self.cleanupNotice(reviewed?.plan, samples: samples.count, clearIndex: clearIndex)

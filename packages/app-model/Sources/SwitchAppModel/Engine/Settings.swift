@@ -34,6 +34,19 @@ extension AppEngine {
     /// Stores one value after registry validation; nil removes it, so the default applies again.
     /// Settings are not an action: they do not wait for the action lane, as on the Mac.
     public func setSetting(_ key: String, _ value: SettingValue?) throws {
+        if key == TrayBarChoices.key, let value {
+            try SettingsRegistry.validate(key, value)
+            if case .object(let providers) = value {
+                let current = storedTrayBars
+                for (id, value) in providers where current[id] != value {
+                    let choices = TrayBarChoices(value)
+                    let bars = try trayBars(providerID: ProviderID(rawValue: id)).bars
+                    guard let choices, choices.expanded.isSubset(of: bars.map(\.id)) else {
+                        throw SettingsError.invalidValue(key)
+                    }
+                }
+            }
+        }
         do {
             if let value { try settings.set(key, value) } else {
                 guard SettingsRegistry.entry(key) != nil else { throw SettingsError.unknownKey(key) }
