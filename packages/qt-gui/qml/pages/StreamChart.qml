@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Shapes
 import "Overview.js" as O
 
-// "Tokens per day" (overview.md 2.4): stacked bands around a centered axis on monotone curves, a 2 pt
+// "Tokens per day" (per hour for Today) (overview.md 2.4): stacked bands around a centered axis on monotone curves, a 2 pt
 // card-color stroke between bands, hover dim, a guide line, the shared tooltip, and the date axis.
 Item {
   id: chart
@@ -15,8 +15,13 @@ Item {
   property var hover: null
   property real engaged: hover ? 1 : 0
   Behavior on engaged { NumberAnimation { duration: Theme.dHover; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } }
+  property bool h24: false
+  // Today: 24 hour slots, but only the started hours are drawn; one hour draws one slot wide.
+  readonly property var drawn: O.padded(series)
+  readonly property int count: drawn.length ? drawn[0].daily.length : 0
   readonly property var xs: O.xs(width, days.length)
-  readonly property var geo: O.stack(series, plotH)
+  readonly property var px: xs.slice(0, count)
+  readonly property var geo: O.stack(drawn, plotH)
   height: plotH + 4 + 16
   Accessible.role: Accessible.Graphic
   Accessible.name: summary
@@ -35,7 +40,7 @@ Item {
         strokeColor: Theme.card
         strokeWidth: 2
         joinStyle: ShapePath.RoundJoin
-        PathSvg { path: chart.days.length > 1 ? O.bandPath(chart.xs, chart.geo.tops[index], chart.geo.bots[index]) : "" }
+        PathSvg { path: chart.days.length > 1 && chart.count > 1 ? O.bandPath(chart.px, chart.geo.tops[index], chart.geo.bots[index]) : "" }
       }
     }
   }
@@ -49,7 +54,7 @@ Item {
     color: Theme.ink(0.35 * chart.engaged)
   }
 
-  OverviewDateAxis { y: chart.plotH + 4; width: chart.width; days: chart.days }
+  OverviewDateAxis { y: chart.plotH + 4; width: chart.width; days: chart.days; h24: chart.h24 }
 
   MouseArea {
     width: chart.width
@@ -63,9 +68,9 @@ Item {
 
   function pointer(x, y) {
     if (gate && gate.blocked()) return
-    var n = days.length
-    if (n < 2 || !series.length) return
-    var day = Math.max(0, Math.min(n - 1, Math.round(x / width * (n - 1))))
+    var n = days.length, real = series.length ? series[0].daily.length : 0
+    if (n < 2 || real < 1) return
+    var day = Math.max(0, Math.min(real - 1, Math.round(x / width * (n - 1))))
     var best = 0, bestD = 1e9
     for (var k = 0; k < series.length; ++k) {
       var t = geo.tops[k][day], b = geo.bots[k][day]
@@ -76,7 +81,7 @@ Item {
     for (k = 0; k < series.length; ++k) all += series[k].daily[day]
     hoverKey = s.id
     hoverDay = day
-    hover = { x: x, y: y, tip: { title: O.short(days[day]), rows: [
+    hover = { x: x, y: y, tip: { title: O.bucket(days[day], h24), rows: [
       { color: s.color, service: s.service, label: s.tip, value: O.tokens(s.daily[day]) },
       { label: "All", value: O.tokens(all) }] } }
   }
