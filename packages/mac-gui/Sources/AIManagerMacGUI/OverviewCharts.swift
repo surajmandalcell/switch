@@ -315,9 +315,9 @@ enum OverviewStreamLayout {
   static func layers(
     _ series: [OverviewSeries], size: CGSize, swell: Double = 1, slots: Int? = nil
   ) -> [(top: [CGPoint], bottom: [CGPoint])] {
-    guard let count = series.first?.daily.count, count > 1 else { return [] }
+    guard let count = series.first?.daily.count, count > 0 else { return [] }
     // `slots` spans the whole x axis (all of today's hours); the series may stop earlier, at now.
-    let span = Double(max(slots ?? count, count) - 1)
+    let span = Double(max(max(slots ?? count, count) - 1, 1))
     let totals = (0..<count).map { index in series.reduce(0.0) { $0 + Double($1.daily[index]) } }
     let scale = (size.height - 2 * inset) / max(totals.max() ?? 1, 1)
     let mid = size.height / 2
@@ -330,6 +330,11 @@ enum OverviewStreamLayout {
         top.append(CGPoint(x: x, y: mid + (from - mid) * swell))
         bottom.append(CGPoint(x: x, y: mid + (to - mid) * swell))
         cursor[index] = to
+      }
+      // One sample (today's first hour) draws as a band one slot wide instead of a zero-width line.
+      if count == 1 {
+        top.append(CGPoint(x: size.width / span, y: top[0].y))
+        bottom.append(CGPoint(x: size.width / span, y: bottom[0].y))
       }
       return (top, bottom)
     }
@@ -361,8 +366,8 @@ private struct OverviewStreamCanvas: View, Animatable, Equatable {
         context.fill(path, with: .color(series[index].color.opacity(opacity)))
         context.stroke(path, with: .color(AIMTheme.card), lineWidth: 2)
       }
-      if let day, let count = series.first?.daily.count, count > 1 {
-        let x = size.width * Double(day) / Double(max(slots ?? count, count) - 1)
+      if let day, let count = series.first?.daily.count, count > 0 {
+        let x = size.width * Double(day) / Double(max(max(slots ?? count, count) - 1, 1))
         var line = Path()
         line.move(to: CGPoint(x: x, y: 0))
         line.addLine(to: CGPoint(x: x, y: size.height))
@@ -701,7 +706,7 @@ private struct OverviewRidgeCanvas: View, Animatable, Equatable {
     Canvas { context, size in
       let layout = OverviewRidgeLayout(size: size, count: series.count)
       let drawn = series.first?.daily.count ?? 0
-      guard drawn > 1 else { return }
+      guard drawn > 0 else { return }
       let days = max(slots ?? drawn, drawn)
       let stagger = min(0.1, 0.4 / Double(max(series.count, 1)))
       for (row, item) in series.enumerated() {
@@ -712,11 +717,13 @@ private struct OverviewRidgeCanvas: View, Animatable, Equatable {
         let rise = OverviewMotion.window(clock, start: Double(row) * stagger, length: 0.5)
         let lift = on ? OverviewRidgeLayout.lift * engaged : 0
         let top = Double(item.daily.max() ?? 1)
-        let points = item.daily.enumerated().map { index, value in
+        var points = item.daily.enumerated().map { index, value in
           CGPoint(
             x: layout.x(index, of: days),
             y: base - lift - layout.peak * rise * Double(value) / max(top, 1))
         }
+        // One sample (today's first hour) draws as a flat ridge one slot wide.
+        if drawn == 1, let only = points.first { points.append(CGPoint(x: layout.x(1, of: days), y: only.y)) }
         var line = Path()
         line.move(to: CGPoint(x: layout.plot.minX, y: base))
         line.addLine(to: CGPoint(x: layout.plot.maxX, y: base))
