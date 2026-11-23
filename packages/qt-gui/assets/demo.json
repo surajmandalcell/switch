@@ -71,6 +71,17 @@
     }
   },
   "replies": {
+    "tray.bars.get": { "isCustom": false,
+      "bars": [ { "id": "5h", "label": "5h", "glance": true, "expanded": true, "isDefaultGlance": true, "isDefaultExpanded": true },
+                { "id": "Weekly", "label": "Weekly", "glance": true, "expanded": true, "isDefaultGlance": true, "isDefaultExpanded": true },
+                { "id": "Spark 5h", "label": "Spark 5h", "glance": false, "expanded": true, "isDefaultGlance": false, "isDefaultExpanded": true },
+                { "id": "Spark Weekly", "label": "Spark Weekly", "glance": false, "expanded": true, "isDefaultGlance": false, "isDefaultExpanded": true } ] },
+    "tray.bars.set": {},
+    "tray.bars.reset": { "isCustom": false,
+      "bars": [ { "id": "5h", "label": "5h", "glance": true, "expanded": true, "isDefaultGlance": true, "isDefaultExpanded": true },
+                { "id": "Weekly", "label": "Weekly", "glance": true, "expanded": true, "isDefaultGlance": true, "isDefaultExpanded": true },
+                { "id": "Spark 5h", "label": "Spark 5h", "glance": false, "expanded": true, "isDefaultGlance": false, "isDefaultExpanded": true },
+                { "id": "Spark Weekly", "label": "Spark Weekly", "glance": false, "expanded": true, "isDefaultGlance": false, "isDefaultExpanded": true } ] },
     "providers.list": [
       { "id": "codex", "displayName": "Codex CLI", "availability": "enabled" }, { "id": "grok-build", "displayName": "Grok Build", "availability": "enabled" },
       { "id": "droid", "displayName": "Droid", "availability": "enabled" }, { "id": "claude-code", "displayName": "Claude Code", "availability": "enabled" },
