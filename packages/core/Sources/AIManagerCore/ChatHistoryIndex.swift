@@ -257,6 +257,8 @@ public struct ChatHistorySnapshot: Sendable, Equatable {
     public let skippedFileCount: Int
     public let unreadableRecordCount: Int
     public let reparsedFileCount: Int
+    /// Threads that match the query, per app, before the app filter and the limit (the filter panel's counts).
+    public var sourceCounts: [ChatThreadSource: Int] = [:]
 
     public init(
         threads: [ChatThreadSummary] = [],
@@ -465,7 +467,9 @@ public actor ChatHistoryIndex {
         lastRefreshMetrics
     }
 
-    public func refresh(query: String = "", limit: Int = 1_000) async throws -> ChatHistorySnapshot {
+    public func refresh(
+        query: String = "", limit: Int = 1_000, sources: Set<ChatThreadSource> = []
+    ) async throws -> ChatHistorySnapshot {
         try Task.checkCancellation()
         guard !isClearingCache else { throw CancellationError() }
         let reparsedFileCount: Int
@@ -480,7 +484,7 @@ public actor ChatHistoryIndex {
             reparsedFileCount = try await task.value
         }
         try Task.checkCancellation()
-        return makeSnapshot(query: query, limit: limit, reparsedFileCount: reparsedFileCount)
+        return makeSnapshot(query: query, limit: limit, sources: sources, reparsedFileCount: reparsedFileCount)
     }
 
     private func scan() async throws -> Int {
@@ -602,8 +606,9 @@ public actor ChatHistoryIndex {
         return fullyParsedFileCount
     }
 
-    public func search(query: String, limit: Int = 1_000) -> ChatHistorySnapshot {
-        makeSnapshot(query: query, limit: limit, reparsedFileCount: 0)
+    /// `sources` keeps only those apps (empty keeps all), before the limit cuts the list.
+    public func search(query: String, limit: Int = 1_000, sources: Set<ChatThreadSource> = []) -> ChatHistorySnapshot {
+        makeSnapshot(query: query, limit: limit, sources: sources, reparsedFileCount: 0)
     }
 
     public func detail(
@@ -752,6 +757,7 @@ public actor ChatHistoryIndex {
     private func makeSnapshot(
         query: String,
         limit: Int,
+        sources: Set<ChatThreadSource>,
         reparsedFileCount: Int
     ) -> ChatHistorySnapshot {
         let terms = query
@@ -770,11 +776,12 @@ public actor ChatHistoryIndex {
             orderedCacheIsDirty = false
         }
         let all = orderedCache
-        let matches = terms.isEmpty ? all : all.filter { cached in
+        let found = terms.isEmpty ? all : all.filter { cached in
             terms.allSatisfy { cached.searchText.contains($0) }
         }
+        let matches = sources.isEmpty ? found : found.filter { sources.contains($0.summary.appSource) }
         let safeLimit = min(max(1, limit), 2_000)
-        return ChatHistorySnapshot(
+        var snapshot = ChatHistorySnapshot(
             threads: Array(matches.prefix(safeLimit)).map(\.summary),
             libraryRevision: libraryRevision,
             totalThreadCount: all.count,
@@ -782,6 +789,8 @@ public actor ChatHistoryIndex {
             skippedFileCount: failedSignatures.count,
             unreadableRecordCount: cachedUnreadableRecordCount,
             reparsedFileCount: reparsedFileCount)
+        snapshot.sourceCounts = found.reduce(into: [:]) { $0[$1.summary.appSource, default: 0] += 1 }
+        return snapshot
     }
 
     private func loadPersistentCacheIfNeeded() {

@@ -42,6 +42,11 @@ public actor ClaudeChatIndex {
     private var ordered: [(summary: ChatThreadSummary, searchText: String)]?
     private var refreshTask: Task<Void, Error>?
     private var detailCache: (path: String, signature: Signature, messages: [ChatMessage])?
+    private var clearGeneration = 0
+    /// Tests only: runs after a scan reads its files, before it saves them.
+    private var willCommitScan: (@Sendable () async -> Void)?
+
+    func setWillCommitScan(_ hook: @escaping @Sendable () async -> Void) { willCommitScan = hook }
 
     public init(roots: [URL] = ClaudeCostScanner.defaultRoots(), cacheFile: URL? = nil) {
         self.roots = roots
@@ -53,7 +58,9 @@ public actor ClaudeChatIndex {
         roots += more.filter { !roots.contains($0) }
     }
 
-    public func refresh(query: String = "", limit: Int = 1_000) async throws -> ChatHistorySnapshot {
+    public func refresh(
+        query: String = "", limit: Int = 1_000, sources: Set<ChatThreadSource> = []
+    ) async throws -> ChatHistorySnapshot {
         if let refreshTask {
             try await refreshTask.value
         } else {
@@ -62,10 +69,11 @@ public actor ClaudeChatIndex {
             defer { refreshTask = nil }
             try await task.value
         }
-        return search(query: query, limit: limit)
+        return search(query: query, limit: limit, sources: sources)
     }
 
-    public func search(query: String, limit: Int = 1_000) -> ChatHistorySnapshot {
+    /// `sources` keeps only those apps (empty keeps all), before the limit cuts the list.
+    public func search(query: String, limit: Int = 1_000, sources: Set<ChatThreadSource> = []) -> ChatHistorySnapshot {
         if ordered == nil {
             ordered = entries.values.map { entry in
                 let summary = Self.summary(entry)
@@ -79,14 +87,17 @@ public actor ClaudeChatIndex {
         }
         let all = ordered ?? []
         let terms = query.split(whereSeparator: \.isWhitespace).map { $0.lowercased() }
-        let matches = terms.isEmpty ? all : all.filter { row in terms.allSatisfy(row.searchText.contains) }
-        return ChatHistorySnapshot(
+        let found = terms.isEmpty ? all : all.filter { row in terms.allSatisfy(row.searchText.contains) }
+        let matches = sources.isEmpty || sources.contains(.claude) ? found : []
+        var snapshot = ChatHistorySnapshot(
             threads: matches.prefix(min(max(1, limit), 2_000)).map(\.summary),
             libraryRevision: revision,
             totalThreadCount: all.count,
             matchingThreadCount: matches.count,
             skippedFileCount: failedCount,
             unreadableRecordCount: all.reduce(0) { $0 + $1.summary.unreadableRecordCount })
+        if !found.isEmpty { snapshot.sourceCounts = [.claude: found.count] }
+        return snapshot
     }
 
     /// One page of a Claude conversation, or nil when `id` is not a Claude session.
@@ -112,6 +123,7 @@ public actor ClaudeChatIndex {
     }
 
     public func clearCache() {
+        clearGeneration &+= 1
         entries = [:]
         ordered = nil
         detailCache = nil
@@ -123,6 +135,7 @@ public actor ClaudeChatIndex {
 
     private func scan() async throws {
         loadCacheIfNeeded()
+        let generation = clearGeneration
         let roots = roots
         let found = await Task.detached(priority: .utility) { Self.candidates(roots) }.value
         var next: [String: Entry] = [:]
@@ -155,6 +168,9 @@ public actor ClaudeChatIndex {
                 _ = add()
             }
         }
+        await willCommitScan?()
+        // A clear during this scan owns the index; the scan's rows are stale.
+        guard generation == clearGeneration else { return }
         let changed = !jobs.isEmpty || next.count != entries.count || failed != failedCount
         entries = next
         failedCount = failed
@@ -226,7 +242,8 @@ public actor ClaudeChatIndex {
         return state
     }
 
-    /// Every message of a session, in file order. Very long texts are cut to keep the reader light.
+    /// Every message of a session, in file order, with its full text: copy actions export it, and the
+    /// reader cuts long texts for display itself.
     nonisolated static func readMessages(_ url: URL) throws -> [ChatMessage] {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -236,8 +253,7 @@ public actor ClaudeChatIndex {
             let when = (record["timestamp"] as? String).flatMap(date)
             let model = (record["message"] as? [String: Any])?["model"] as? String
             for (role, text) in parts(record, includeText: true) {
-                let shown = text.count > 20_000 ? String(text.prefix(20_000)) + "\n…" : text
-                messages.append(ChatMessage(id: "\(url.path)#\(messages.count)", role: role, text: shown,
+                messages.append(ChatMessage(id: "\(url.path)#\(messages.count)", role: role, text: text,
                     timestamp: when, model: role == .assistant && model != "<synthetic>" ? model : nil))
             }
         }
@@ -412,7 +428,7 @@ extension ChatHistorySnapshot {
         let threads = (first.threads + second.threads).sorted {
             $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : $0.id < $1.id
         }
-        return ChatHistorySnapshot(
+        var merged = ChatHistorySnapshot(
             threads: Array(threads.prefix(limit)),
             // Both revisions only grow, so the sum changes whenever either library does.
             libraryRevision: first.libraryRevision &+ second.libraryRevision,
@@ -421,5 +437,7 @@ extension ChatHistorySnapshot {
             skippedFileCount: first.skippedFileCount + second.skippedFileCount,
             unreadableRecordCount: first.unreadableRecordCount + second.unreadableRecordCount,
             reparsedFileCount: first.reparsedFileCount + second.reparsedFileCount)
+        merged.sourceCounts = first.sourceCounts.merging(second.sourceCounts, uniquingKeysWith: +)
+        return merged
     }
 }
