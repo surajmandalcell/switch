@@ -49,7 +49,7 @@ struct MockAccountViewModelCheck {
         precondition(model.selectedAccount?.verification.state == .verifiedWithCodex)
         model.reset(to: .allStates)
         await model.refreshChatHistory(query: "")
-        precondition(model.chatHistory.totalThreadCount == 3)
+        precondition(model.chatHistory.totalThreadCount == DemoData.chatThreads.count)
         let initialChatID = model.selectedChatID
         await model.searchChatHistory(query: "account import")
         precondition(model.chatHistory.matchingThreadCount == 1)
