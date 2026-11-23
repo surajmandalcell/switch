@@ -336,11 +336,14 @@ struct ChatThreadRow: View {
 }
 
 /// The History list's filter: the apps whose conversations show. An empty set shows all.
-/// History reads only Codex transcripts today (ChatHistoryIndex), and a transcript does not
-/// record the signed-in account, so the choices are Codex and its apps, not accounts.
+/// Choices are providers and their apps, not accounts: a Codex transcript does not record the
+/// signed-in account, and every Claude profile shares one `projects` folder.
 enum HistoryThreadFilter {
   static let defaultsKey = "history.appFilter"
-  static let provider = ProviderID.codex
+
+  static func provider(_ source: ChatThreadSource) -> ProviderID {
+    source == .claude ? .claudeCode : .codex
+  }
 
   static func load(from defaults: UserDefaults = .standard) -> Set<ChatThreadSource> {
     Set((defaults.stringArray(forKey: defaultsKey) ?? []).compactMap(ChatThreadSource.init(rawValue:)))
@@ -380,17 +383,28 @@ private struct HistoryFilterPanel: View {
     let counts = counts
     let present = Set(counts.keys)
     let sources = ChatThreadSource.allCases.filter(present.contains)
+    let providers = [ProviderID.codex, .claudeCode].filter { provider in
+      sources.contains { HistoryThreadFilter.provider($0) == provider }
+    }
     VStack(alignment: .leading, spacing: 0) {
       row("All providers", count: threads.count, checked: selection.isEmpty) { selection = [] }
       AIMHairline().padding(.vertical, 4)
-      row("Codex", provider: HistoryThreadFilter.provider, count: threads.count,
-        checked: selection.isEmpty || present.isSubset(of: selection)) {
-        selection = HistoryThreadFilter.toggling(present, in: selection, present: present)
-      }
-      ForEach(sources, id: \.self) { source in
-        row(source == .codex ? "Other Codex" : source.displayLabel, indent: true, count: counts[source] ?? 0,
-          checked: selection.isEmpty || selection.contains(source)) {
-          selection = HistoryThreadFilter.toggling([source], in: selection, present: present)
+      ForEach(providers, id: \.self) { provider in
+        let apps = sources.filter { HistoryThreadFilter.provider($0) == provider }
+        let group = Set(apps)
+        row(provider == .codex ? "Codex" : "Claude Code", provider: provider,
+          count: apps.reduce(0) { $0 + (counts[$1] ?? 0) },
+          checked: selection.isEmpty || group.isSubset(of: selection)) {
+          selection = HistoryThreadFilter.toggling(group, in: selection, present: present)
+        }
+        // Claude Code has one source and no reliable account, so it has no rows under it.
+        if provider == .codex {
+          ForEach(apps, id: \.self) { source in
+            row(source == .codex ? "Other Codex" : source.displayLabel, indent: true, count: counts[source] ?? 0,
+              checked: selection.isEmpty || selection.contains(source)) {
+              selection = HistoryThreadFilter.toggling([source], in: selection, present: present)
+            }
+          }
         }
       }
       AIMHairline().padding(.vertical, 4)

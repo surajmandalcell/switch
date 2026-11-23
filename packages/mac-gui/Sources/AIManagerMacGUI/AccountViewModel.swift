@@ -21,10 +21,12 @@ protocol ChatHistoryProviding: Sendable {
     func clearCache() async throws
     func cleanupSummaries() async -> [ChatThreadSummary]
     func preserveActivity(for sources: [URL]) async throws
+    func addClaudeRoots(_ homes: [URL]) async
 }
 
 extension ChatHistoryProviding {
     func attachActivityCache(_ cache: CodexUsageStatisticsCache) async {}
+    func addClaudeRoots(_ homes: [URL]) async {}
     func cleanupSummaries() async -> [ChatThreadSummary] { [] }
     func preserveActivity(for sources: [URL]) async throws {
         throw AIManagerError.operationFailed("The activity ledger is unavailable. Conversations were kept.")
@@ -40,30 +42,44 @@ extension ChatHistoryProviding {
     }
 }
 
+/// Codex chats from `index`, plus Claude Code sessions from `claude` merged into one list.
+/// Cleanup and activity stay Codex only.
 private struct IndexedChatHistoryProvider: ChatHistoryProviding {
     let index: ChatHistoryIndex
+    let claude: ClaudeChatIndex?
 
     func attachActivityCache(_ cache: CodexUsageStatisticsCache) async {
         await index.attachActivityCache(cache)
     }
 
+    func addClaudeRoots(_ homes: [URL]) async { await claude?.addRoots(homes) }
+
     func refresh(query: String) async throws -> ChatHistorySnapshot {
-        try await index.refresh(query: query)
+        async let codex = index.refresh(query: query)
+        guard let claude else { return try await codex }
+        let sessions = try await claude.refresh(query: query)
+        return .merging(try await codex, sessions)
     }
 
     func search(query: String) async -> ChatHistorySnapshot {
-        await index.search(query: query)
+        let codex = await index.search(query: query)
+        guard let claude else { return codex }
+        return .merging(codex, await claude.search(query: query))
     }
 
     func detail(for id: String) async throws -> ChatThreadDetail? {
-        try await index.detail(for: id)
+        try await page(for: id, offset: 0, query: "", filter: .all)
     }
 
     func page(for id: String, offset: Int, query: String, filter: ChatMessageFilter) async throws -> ChatThreadDetail? {
-        try await index.detail(for: id, offset: offset, query: query, filter: filter)
+        if let detail = try await claude?.detail(for: id, offset: offset, query: query, filter: filter) {
+            return detail
+        }
+        return try await index.detail(for: id, offset: offset, query: query, filter: filter)
     }
 
     func clearCache() async throws {
+        await claude?.clearCache()
         try await index.clearCache()
     }
     func cleanupSummaries() async -> [ChatThreadSummary] { await index.cleanupSummaries() }
@@ -255,7 +271,10 @@ final class AccountViewModel: ObservableObject {
                 ?? IndexedChatHistoryProvider(index: ChatHistoryIndex(
                     home: paths.sharedRoot,
                     cacheFile: paths.applicationSupport.appending(
-                        path: "cache/chat-history-v1.json")))
+                        path: "cache/chat-history-v1.json")),
+                    // A test home never reads the real Claude folders.
+                    claude: paths.isolationRoot != nil ? nil : ClaudeChatIndex(
+                        cacheFile: paths.applicationSupport.appending(path: "cache/claude-chat-history-v1.json")))
             chatHistoryMonitor = injectedChatHistoryMonitor
                 ?? FSEventChatHistoryMonitor(home: paths.sharedRoot)
         } catch {
@@ -2522,6 +2541,8 @@ final class AccountViewModel: ObservableObject {
             return
         }
         do {
+            await chatHistoryProvider.addClaudeRoots(
+                Array(UsageHistory.claudeProfileHomes(accounts: status?.accounts ?? []).values))
             let snapshot = try await chatHistoryProvider.refresh(query: query)
             guard !Task.isCancelled else { return }
             hasScannedChatHistory = true
@@ -3063,6 +3084,17 @@ enum DemoData {
             preview: "Both ARM64 and AMD64 passed in clean read-only containers.",
             project: "/Projects/Switch", minutesAgo: 74, messages: 3, appSource: .cli, model: "gpt-6.2-sol"),
         chatThread(
+            id: "demo-chat-claude-history", threadID: "5b0e2c1a-history",
+            title: "Show Claude Code sessions in History",
+            preview: "Claude sessions now sit beside Codex chats, newest first.",
+            project: "/Projects/Switch", minutesAgo: 31, messages: 5, appSource: .claude, model: "claude-opus-5-5"),
+        chatThread(
+            id: "demo-chat-claude-site", threadID: "5b0e2c1a-site",
+            title: "Tighten the pricing section spacing",
+            preview: "The cards now share one baseline at every width.",
+            project: "/Projects/Website", minutesAgo: 312, messages: 3, appSource: .claude,
+            model: "claude-sonnet-5-5"),
+        chatThread(
             id: "demo-chat-icon", threadID: "019f4b6d-icon",
             title: "Trace the final Switch icon",
             preview: "The approved pixel trace is packaged for light and dark appearances.",
@@ -3102,6 +3134,20 @@ enum DemoData {
                 (.user, "Run the core and CLI checks on both Linux architectures."),
                 (.assistant, "The read-only ARM64 container passed."),
                 (.assistant, "Both ARM64 and AMD64 passed in clean read-only containers."),
+            ]
+        case "demo-chat-claude-history":
+            copy = [
+                (.user, "Claude chats are missing from History. Add them next to Codex."),
+                (.other, "Checked where Claude Code keeps its session files."),
+                (.tool, "Read\n{\"file_path\":\"ChatHistoryIndex.swift\"}"),
+                (.assistant, "The index read only Codex files. I added a Claude index and merged both lists."),
+                (.assistant, "Claude sessions now sit beside Codex chats, newest first."),
+            ]
+        case "demo-chat-claude-site":
+            copy = [
+                (.user, "The pricing cards do not line up on a phone."),
+                (.tool, "Edit\n{\"file_path\":\"pricing.css\"}"),
+                (.assistant, "The cards now share one baseline at every width."),
             ]
         default:
             copy = [
