@@ -262,7 +262,7 @@ enum AccountSearch {
   }
 }
 
-/// The main window: a native sidebar (Overview, Accounts, Settings, Maintenance, Conversations), a
+/// The main window: a native sidebar (Overview, Accounts, Settings, History, Utilities), a
 /// unified toolbar with account search, Add, and More, and the selected page.
 struct AccountWindow: View {
   @ObservedObject var model: AccountViewModel
@@ -418,9 +418,9 @@ struct AccountWindow: View {
     HStack(spacing: AIMTheme.rowSpacing) {
       Spacer(minLength: 0)
       HStack(spacing: AIMTheme.rowSpacing) {
-        AIMSquareButton(
-          icon: .plus, label: "Add Account", disabled: model.isBusy || !model.hasLoaded
-        ) { Task { await model.beginAddAccount() } }
+        AIMAddAccountButton(page: page, disabled: model.isBusy || !model.hasLoaded) {
+          Task { await model.beginAddAccount() }
+        }
         AIMIconMenu(icon: .ellipsis, label: "More") {
           Button("Refresh All Usage") { Task { await model.refreshAllUsage() } }
             .disabled(model.isBusy)
@@ -516,6 +516,51 @@ struct AccountWindow: View {
     }
     let name: NSAppearance.Name = dark ? .darkAqua : .aqua
     if window.appearance?.name != name { window.appearance = NSAppearance(named: name) }
+  }
+}
+
+/// The top row's Add button: a square `plus` on every page, widened into "+ Add Account" on Accounts
+/// so a new user can tell what it does. Each page draws its own top row, so the button follows the
+/// page the window shows next (`didShowPage`) one run-loop turn later, once that page is on screen
+/// and the change can animate. Reduce Motion swaps it at once.
+struct AIMAddAccountButton: View {
+  let disabled: Bool
+  let action: () -> Void
+  @State private var wide: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  static let title = "Add Account"
+  static let motion = Animation.spring(duration: 0.32, bounce: 0.12)
+
+  init(page: AIManagerPage, disabled: Bool, action: @escaping () -> Void) {
+    self.disabled = disabled
+    self.action = action
+    _wide = State(initialValue: page == .accounts)
+  }
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 0) {
+        AIMIcon(name: .plus)
+        Text(Self.title)
+          .fixedSize()
+          .padding(.leading, 5)
+          .frame(width: wide ? nil : 0, alignment: .leading)
+          .opacity(wide ? 1 : 0)
+          .clipped()
+      }
+    }
+    .buttonStyle(AIMPushButtonStyle(square: !wide))
+    .fixedSize()
+    .disabled(disabled)
+    .help(Self.title)
+    .accessibilityLabel(Self.title)
+    .onReceive(NotificationCenter.default.publisher(for: AIManagerNavigation.didShowPage)) { note in
+      guard let shown = note.object as? AIManagerPage else { return }
+      DispatchQueue.main.async {
+        withAnimation(reduceMotion ? nil : Self.motion) { wide = shown == .accounts }
+      }
+    }
   }
 }
 

@@ -339,15 +339,15 @@ private enum AcceptanceConfiguration {
     static var opensAddSignIn: Bool { CommandLine.arguments.contains("--add-signin") }
     static var showsAllStates: Bool { CommandLine.arguments.contains("--all-states") }
     static var stressesHistory: Bool { CommandLine.arguments.contains("--history-stress") }
-    /// Index into `AIManagerPage.allCases`: Overview (default), Accounts, Settings, Maintenance,
-    /// Conversations.
+    /// Index into `AIManagerPage.allCases`: Overview (default), Accounts, Settings, Conversations,
+    /// Maintenance (shown as Utilities).
     static var initialPageIndex: Int {
         if CommandLine.arguments.contains("--accounts") { return 1 }
         if CommandLine.arguments.contains("--settings") { return 2 }
+        if CommandLine.arguments.contains("--history") { return 3 }
         if CommandLine.arguments.contains("--backup")
             || CommandLine.arguments.contains("--recovery")
-            || CommandLine.arguments.contains("--cleanup") { return 3 }
-        if CommandLine.arguments.contains("--history") { return 4 }
+            || CommandLine.arguments.contains("--cleanup") { return 4 }
         return 0
     }
     /// The page the run asked for and the page the window shows now; empty when they match.

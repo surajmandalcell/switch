@@ -1485,14 +1485,25 @@ enum AIManagerNativeContract {
   @MainActor static func menuFailures(in mainMenu: NSMenu?, applicationName: String) -> [String] {
     guard let mainMenu else { return ["Main menu is unavailable"] }
     var failures: [String] = []
-    let expectedPages = ["Overview", "Accounts", "Settings", "Maintenance", "History"]
+    let expectedPages = ["Overview", "Accounts", "Settings", "History", "Utilities"]
     if AIManagerPage.allCases.map(\.title) != expectedPages {
       failures.append("The sidebar and View menu page order is incorrect")
     }
-    if AIManagerPage.conversations.rawValue != "Conversations" {
-      failures.append("Renaming History changed its saved navigation identifier")
+    let viewTitles = (mainMenu.item(withTitle: "View")?.submenu?.items ?? []).map(\.title)
+    if Array(viewTitles.suffix(expectedPages.count)) != expectedPages {
+      failures.append("View menu pages \(viewTitles) do not follow the sidebar order")
     }
-    let expectedSymbols = ["house.fill", "person.2.fill", "gearshape.fill", "wrench.and.screwdriver.fill", "ellipsis.message.fill"]
+    if AIManagerPage.conversations.rawValue != "Conversations" || AIManagerPage.maintenance.rawValue != "Maintenance" {
+      failures.append("Renaming History or Utilities changed its saved navigation identifier")
+    }
+    if let saved = UserDefaults(suiteName: "switch-contract-saved-page") {
+      saved.set("Maintenance", forKey: AIMPlace.lastPageKey)
+      if AIMPlace.launchPage(defaults: saved) != .maintenance {
+        failures.append("A saved Maintenance page no longer opens Utilities")
+      }
+      saved.removePersistentDomain(forName: "switch-contract-saved-page")
+    }
+    let expectedSymbols = ["house.fill", "person.2.fill", "gearshape.fill", "ellipsis.message.fill", "wrench.and.screwdriver.fill"]
     if AIManagerPage.allCases.map(\.icon.symbol) != expectedSymbols
       || expectedSymbols.contains(where: { NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil })
     {

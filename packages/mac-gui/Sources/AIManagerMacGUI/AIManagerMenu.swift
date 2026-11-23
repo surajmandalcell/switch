@@ -1,14 +1,21 @@
 import AppKit
 
-/// Stable saved navigation identifiers in sidebar and View menu order.
+/// Stable saved navigation identifiers in sidebar and View menu order. The raw values are saved
+/// (`lastPage`), so a renamed page keeps its old raw value and changes only its `title`.
 enum AIManagerPage: String, CaseIterable {
   case overview = "Overview"
   case accounts = "Accounts"
   case settings = "Settings"
-  case maintenance = "Maintenance"
   case conversations = "Conversations"
+  case maintenance = "Maintenance"
 
-  var title: String { self == .conversations ? "History" : rawValue }
+  var title: String {
+    switch self {
+    case .conversations: "History"
+    case .maintenance: "Utilities"
+    default: rawValue
+    }
+  }
 }
 
 enum AIManagerNavigation {
@@ -155,8 +162,8 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
       item("Overview", #selector(showOverview(_:)), key: "1", target: self),
       item("Accounts", #selector(showAccounts(_:)), key: "2", target: self),
       item("Settings", #selector(showSettings(_:)), key: "3", target: self),
-      item("Maintenance", #selector(showMaintenance(_:)), key: "4", target: self),
-      item("History", #selector(showConversations(_:)), key: "5", target: self),
+      item("History", #selector(showConversations(_:)), key: "4", target: self),
+      item("Utilities", #selector(showMaintenance(_:)), key: "5", target: self),
     ]
   }
 
