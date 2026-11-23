@@ -165,16 +165,24 @@ public actor ClaudeChatIndex {
         }
     }
 
+    /// Each root's `projects/` dir (or the root itself), resolved and deduped. The History watcher
+    /// watches these same folders.
+    public nonisolated static func projectsFolders(_ roots: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return roots.compactMap { root in
+            let inner = root.appending(path: "projects", directoryHint: .isDirectory)
+            guard let projects = [inner, root].first(where: isDirectory)?.resolvingSymlinksInPath(),
+                  seen.insert(projects.path).inserted else { return nil }
+            return projects
+        }
+    }
+
     /// Top-level session files of every distinct `projects/` dir, with size and date.
     nonisolated static func candidates(_ roots: [URL]) -> [(URL, Signature)] {
         let fileManager = FileManager.default
-        var seen = Set<String>()
         var found: [(URL, Signature)] = []
-        for root in roots {
-            let inner = root.appending(path: "projects", directoryHint: .isDirectory)
-            guard let projects = [inner, root].first(where: isDirectory)?.resolvingSymlinksInPath(),
-                  seen.insert(projects.path).inserted,
-                  let folders = try? fileManager.contentsOfDirectory(
+        for projects in projectsFolders(roots) {
+            guard let folders = try? fileManager.contentsOfDirectory(
                     at: projects, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)
             else { continue }
             for folder in folders where isDirectory(folder) {
