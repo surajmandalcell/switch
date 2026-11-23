@@ -3182,7 +3182,32 @@ enum DemoData {
                     model: row.model, project: row.project, tokens: count, costUSD: Double(count) * 4.2e-6))
             }
         }
-        return UsageHistorySnapshot(points: points, today: utcDay(Date(timeIntervalSince1970: Double(today) * 86_400)))
+        return UsageHistorySnapshot(points: points, today: utcDay(Date(timeIntervalSince1970: Double(today) * 86_400)),
+                                    slots: usageSlots(rows: transcripts, owners: owners))
+    }
+
+    /// Today's synthetic usage per 15-minute slot, local midnight to `now`, for the tools that keep
+    /// event times (Codex, Claude Code, Grok Build): quiet at night, busy in the afternoon.
+    private static func usageSlots(rows: [(service: String, model: String, project: String, base: Double)],
+                                   owners: [String: [String]]) -> [UsageSlotPoint] {
+        let first = Int64(Calendar.current.startOfDay(for: now).timeIntervalSince1970 / 900)
+        let last = Int64(now.timeIntervalSince1970 / 900)
+        var slots: [UsageSlotPoint] = []
+        for quarter in first...max(first, last) {
+            let hour = Double(quarter - first) / 4
+            let curve = max(0, sin((hour - 7) / 16 * .pi)) + (hour < 2 ? 0.25 : 0)
+            for (index, row) in rows.enumerated() where row.service != "droid" {
+                let noise = abs(sin(Double(quarter) * 12.9898 + Double(index) * 78.233) * 43_758.5453)
+                    .truncatingRemainder(dividingBy: 1)
+                let tokens = Int64(row.base / 40 * curve * (0.3 + noise))
+                guard tokens > 0 else { continue }
+                slots.append(UsageSlotPoint(quarter: quarter, point: UsageHistoryPoint(
+                    day: utcDay(Date(timeIntervalSince1970: Double(quarter) * 900)), service: row.service,
+                    accountID: UsageHistory.owner(service: row.service, accountID: nil, accounts: owners),
+                    model: row.model, project: row.project, tokens: tokens, costUSD: Double(tokens) * 4.2e-6)))
+            }
+        }
+        return slots
     }
 
     /// Synthetic sessions for one demo day: each transcript point becomes a session; the first two

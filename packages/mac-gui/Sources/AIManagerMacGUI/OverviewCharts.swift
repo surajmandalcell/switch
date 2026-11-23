@@ -279,6 +279,11 @@ struct OverviewDateAxis: View {
   static func labels(_ days: [String]) -> [(fraction: Double, text: String)] {
     guard days.count > 1 else { return [] }
     let last = days.count - 1
+    if days[0].contains("T") {
+      // Today's hours: 12 AM, 6 AM, 12 PM, 6 PM, then the last hour.
+      let picks = days.indices.filter { (OverviewHour.hour(days[$0]) ?? 1) % 6 == 0 && $0 < last - 2 } + [last]
+      return picks.map { (Double($0) / Double(last), OverviewHour.label(days[$0])) }
+    }
     let picks = days.count <= 7 ? Array(stride(from: 0, through: last, by: 2)) : (0...4).map { Int((Double($0) * Double(last) / 4).rounded()) }
     return picks.map { (Double($0) / Double(last), days.count <= 7 ? OverviewDay.weekdayName(days[$0]) : OverviewDay.short(days[$0])) }
   }
@@ -308,9 +313,11 @@ enum OverviewStreamLayout {
   /// Stacked bands around a centered axis, top to bottom in series order. `swell` scales the
   /// bands about the axis, so the draw-in grows out of a hairline.
   static func layers(
-    _ series: [OverviewSeries], size: CGSize, swell: Double = 1
+    _ series: [OverviewSeries], size: CGSize, swell: Double = 1, slots: Int? = nil
   ) -> [(top: [CGPoint], bottom: [CGPoint])] {
     guard let count = series.first?.daily.count, count > 1 else { return [] }
+    // `slots` spans the whole x axis (all of today's hours); the series may stop earlier, at now.
+    let span = Double(max(slots ?? count, count) - 1)
     let totals = (0..<count).map { index in series.reduce(0.0) { $0 + Double($1.daily[index]) } }
     let scale = (size.height - 2 * inset) / max(totals.max() ?? 1, 1)
     let mid = size.height / 2
@@ -318,7 +325,7 @@ enum OverviewStreamLayout {
     return series.map { item in
       var top: [CGPoint] = [], bottom: [CGPoint] = []
       for index in 0..<count {
-        let x = size.width * Double(index) / Double(count - 1)
+        let x = size.width * Double(index) / span
         let (from, to) = (cursor[index], cursor[index] + Double(item.daily[index]) * scale)
         top.append(CGPoint(x: x, y: mid + (from - mid) * swell))
         bottom.append(CGPoint(x: x, y: mid + (to - mid) * swell))
@@ -335,6 +342,7 @@ private struct OverviewStreamCanvas: View, Animatable, Equatable {
   var engaged: Double
   let highlight: String?
   let day: Int?
+  var slots: Int?
   var animatableData: Double {
     get { engaged }
     set { engaged = newValue }
@@ -342,7 +350,7 @@ private struct OverviewStreamCanvas: View, Animatable, Equatable {
 
   var body: some View {
     Canvas { context, size in
-      let layers = OverviewStreamLayout.layers(series, size: size, swell: OverviewMotion.ease(clock))
+      let layers = OverviewStreamLayout.layers(series, size: size, swell: OverviewMotion.ease(clock), slots: slots)
       for (index, layer) in layers.enumerated() {
         var path = Path()
         path.addMonotone(layer.top, connect: false)
@@ -354,7 +362,7 @@ private struct OverviewStreamCanvas: View, Animatable, Equatable {
         context.stroke(path, with: .color(AIMTheme.card), lineWidth: 2)
       }
       if let day, let count = series.first?.daily.count, count > 1 {
-        let x = size.width * Double(day) / Double(count - 1)
+        let x = size.width * Double(day) / Double(max(slots ?? count, count) - 1)
         var line = Path()
         line.move(to: CGPoint(x: x, y: 0))
         line.addLine(to: CGPoint(x: x, y: size.height))
@@ -386,7 +394,7 @@ struct OverviewStreamChart: View {
       OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.stream) { clock in
         OverviewStreamCanvas(
           series: dataset.series, clock: clock, engaged: hover == nil ? 0 : 1,
-          highlight: hover?.key ?? lastKey, day: hover?.index)
+          highlight: hover?.key ?? lastKey, day: hover?.index, slots: dataset.days.count)
           .equatable()
           .animation(OverviewMotion.hover, value: hover == nil)
       }
@@ -412,9 +420,10 @@ struct OverviewStreamChart: View {
 
   private func info(at point: CGPoint, size: CGSize) -> OverviewHover? {
     let count = dataset.days.count
-    guard count > 1, size.width > 0 else { return nil }
-    let day = min(max(Int((point.x / size.width * Double(count - 1)).rounded()), 0), count - 1)
-    let layers = OverviewStreamLayout.layers(dataset.series, size: size)
+    let drawn = dataset.series.first?.daily.count ?? 0
+    guard count > 1, drawn > 0, size.width > 0 else { return nil }
+    let day = min(max(Int((point.x / size.width * Double(count - 1)).rounded()), 0), drawn - 1)
+    let layers = OverviewStreamLayout.layers(dataset.series, size: size, slots: count)
     guard !layers.isEmpty else { return nil }
     // The band under the pointer, or the nearest band when the pointer is above or below them.
     let distances = layers.map { layer -> CGFloat in
@@ -425,7 +434,7 @@ struct OverviewStreamChart: View {
     let item = dataset.series[index]
     let total = dataset.series.reduce(0) { $0 + $1.daily[day] }
     let tip = OverviewTip(
-      title: OverviewDay.short(dataset.days[day]),
+      title: dataset.bucketTitle(day),
       rows: [
         .init(color: item.color, service: item.service, label: item.tipLabel, value: UsagePresentation.formatTokens(item.daily[day])),
         .init(color: nil, label: "All", value: UsagePresentation.formatTokens(total)),
@@ -682,6 +691,7 @@ private struct OverviewRidgeCanvas: View, Animatable, Equatable {
   var engaged: Double
   let highlight: String?
   let day: Int?
+  var slots: Int?
   var animatableData: Double {
     get { engaged }
     set { engaged = newValue }
@@ -690,8 +700,9 @@ private struct OverviewRidgeCanvas: View, Animatable, Equatable {
   var body: some View {
     Canvas { context, size in
       let layout = OverviewRidgeLayout(size: size, count: series.count)
-      let days = series.first?.daily.count ?? 0
-      guard days > 1 else { return }
+      let drawn = series.first?.daily.count ?? 0
+      guard drawn > 1 else { return }
+      let days = max(slots ?? drawn, drawn)
       let stagger = min(0.1, 0.4 / Double(max(series.count, 1)))
       for (row, item) in series.enumerated() {
         let base = layout.baseline(row)
@@ -713,7 +724,7 @@ private struct OverviewRidgeCanvas: View, Animatable, Equatable {
         var ridge = Path()
         ridge.addMonotone(points, connect: false)
         var fill = ridge
-        fill.addLine(to: CGPoint(x: layout.plot.maxX, y: base - lift))
+        fill.addLine(to: CGPoint(x: points.last?.x ?? layout.plot.maxX, y: base - lift))
         fill.addLine(to: CGPoint(x: layout.plot.minX, y: base - lift))
         fill.closeSubpath()
         // The card color first, so a ridge in front hides the one behind it.
@@ -756,7 +767,7 @@ struct OverviewRidgeline: View {
           OverviewDrawIn(key: dataset.drawKey, duration: OverviewMotion.ridge) { clock in
             OverviewRidgeCanvas(
               series: dataset.series, clock: clock, engaged: hover == nil ? 0 : 1,
-              highlight: hover?.key ?? lastKey, day: hover?.index)
+              highlight: hover?.key ?? lastKey, day: hover?.index, slots: dataset.days.count)
               .equatable()
               .animation(OverviewMotion.hover, value: hover == nil)
           }
@@ -794,13 +805,14 @@ struct OverviewRidgeline: View {
 
   private func info(at point: CGPoint, layout: OverviewRidgeLayout) -> OverviewHover? {
     let days = dataset.days.count
-    guard days > 1, !dataset.series.isEmpty, layout.plot.contains(CGPoint(x: point.x, y: layout.plot.midY)) else {
+    let drawn = dataset.series.first?.daily.count ?? 0
+    guard days > 1, drawn > 0, layout.plot.contains(CGPoint(x: point.x, y: layout.plot.midY)) else {
       return nil
     }
-    let day = min(max(Int(((point.x - layout.plot.minX) / layout.plot.width * Double(days - 1)).rounded()), 0), days - 1)
+    let day = min(max(Int(((point.x - layout.plot.minX) / layout.plot.width * Double(days - 1)).rounded()), 0), drawn - 1)
     let item = dataset.series[layout.row(at: point.y)]
     let tip = OverviewTip(
-      title: OverviewDay.short(dataset.days[day]),
+      title: dataset.bucketTitle(day),
       rows: [.init(
         color: item.color, service: item.service, label: item.tipLabel, value: UsagePresentation.formatTokens(item.daily[day]))])
     return OverviewHover(point: point, tip: tip, key: item.id, index: day)

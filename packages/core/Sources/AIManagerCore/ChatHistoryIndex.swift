@@ -69,9 +69,12 @@ public enum ChatTranscriptExport {
 
 public enum ChatThreadSource: String, Codable, Sendable, CaseIterable {
     case codex, cli, exec, app, chrome, subagent, vscode
+    /// A Claude Code session (ClaudeChatIndex); the other cases are Codex apps.
+    case claude
 
     public var displayLabel: String {
         switch self {
+        case .claude: "Claude Code"
         case .codex: "Codex"
         case .cli: "Codex CLI"
         case .exec: "Codex exec"
@@ -325,6 +328,9 @@ private struct TranscriptParseState: Codable, Sendable {
     /// Per-day, per-model token split. Nil in states saved before models were kept; such a state
     /// cannot resume, so one full parse fills it.
     var activityModels: [String: CodexModelUsage]? = nil
+    /// The last two days of tokens per 15-minute slot and model. Nil in states saved before slots
+    /// were kept; such a state cannot resume, so one full parse fills it.
+    var activityQuarters: [String: CodexModelUsage]? = nil
     var currentModel: String? = nil
     var appSource: ChatThreadSource = .codex
     var previousSplit: CodexModelUsage? = nil
@@ -845,7 +851,8 @@ public actor ChatHistoryIndex {
                 searchText: item.searchText,
                 parseState: parseState,
                 // A state saved before models were kept re-records once so the ledger fills model_days.
-                activityRecorded: (item.activityRecorded ?? false) && parseState?.activityModels != nil)
+                activityRecorded: (item.activityRecorded ?? false) && parseState?.activityModels != nil
+                    && parseState?.activityQuarters != nil)
         }
         for item in document.failures where validPersistentPath(item.path) {
             guard item.path.count <= 4_096, item.byteCount >= 0 else { continue }
@@ -1042,6 +1049,8 @@ public actor ChatHistoryIndex {
             && state.activityDays.allSatisfy { $0.key.count <= 32 && $0.value >= 0 }
             && (state.activityModels?.count ?? 0) <= 100_000
             && (state.activityModels?.allSatisfy { $0.key.count <= 300 && $0.value.tokens >= 0 } ?? true)
+            && (state.activityQuarters?.count ?? 0) <= 100_000
+            && (state.activityQuarters?.allSatisfy { $0.key.count <= 300 && $0.value.tokens >= 0 } ?? true)
             && (state.threadID?.count ?? 0) <= 1_024
             && (state.workingDirectory?.count ?? 0) <= 4_096
             && state.firstActivityEvent.count <= 4_096
@@ -1238,6 +1247,7 @@ private enum TranscriptParser {
               previousState.parsedByteCount == previousSignature.byteCount,
               previousState.endedAtRecordBoundary,
               previousState.activityModels != nil,
+              previousState.activityQuarters != nil,
               previousState.boundaryByteCount <= previousSignature.byteCount,
               let digest = try? boundaryDigest(
                 url: candidate.url,
@@ -1309,6 +1319,11 @@ private enum TranscriptParser {
         dayParser.timeZone = TimeZone(secondsFromGMT: 0)
         var activityDays = state?.activityDays ?? [:]
         var activityModels = state?.activityModels ?? [:]
+        // Only the last two days feed Today (local midnight is at most 26 hours back in any zone).
+        let firstQuarter = Int64((Date().timeIntervalSince1970 - 2 * 86_400) / 900)
+        var activityQuarters = (state?.activityQuarters ?? [:]).filter {
+            ($0.key.split(separator: "\u{1F}").first.flatMap { Int64($0) } ?? 0) >= firstQuarter
+        }
         var currentModel = state?.currentModel
         var appSource = state?.appSource ?? .codex
         var previousSplit = state?.previousSplit ?? CodexModelUsage()
@@ -1425,6 +1440,16 @@ private enum TranscriptParser {
                     entry.cached += step.cached
                     entry.output += step.output
                     activityModels[key] = entry
+                    let quarter = Int64((timestamp.timeIntervalSince1970 / 900).rounded(.down))
+                    if quarter >= firstQuarter {
+                        let slot = "\(quarter)\u{1F}" + (currentModel ?? "unknown")
+                        var usage = activityQuarters[slot] ?? CodexModelUsage()
+                        usage.tokens += step.tokens
+                        usage.input += step.input
+                        usage.cached += step.cached
+                        usage.output += step.output
+                        activityQuarters[slot] = usage
+                    }
                 }
                 continue
             }
@@ -1559,6 +1584,7 @@ private enum TranscriptParser {
                 inheritedHistory: inheritedHistory,
                 hasSessionMetadata: hasSessionMetadata,
                 activityModels: activityModels,
+                activityQuarters: activityQuarters,
                 currentModel: currentModel,
                 appSource: appSource,
                 previousSplit: previousSplit)
@@ -1571,7 +1597,7 @@ private enum TranscriptParser {
                 threadID: threadID, project: workingDirectory, firstEvent: firstActivityEvent,
                 eventCount: activityEventCount, totalTokens: previousTokens, days: activityDays,
                 complete: activityComplete && !inheritedHistory && unreadableRecords == 0 && unchanged,
-                models: activityModels),
+                models: activityModels, quarters: activityQuarters),
             parseState: parseState,
             parsedByteCount: parsedByteCount,
             wasIncremental: state != nil)
