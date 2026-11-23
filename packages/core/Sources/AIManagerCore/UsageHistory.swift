@@ -155,6 +155,8 @@ public struct UsageGroup: Codable, Equatable, Sendable {
     public let costUSD: Double?
     /// Tokens per day, aligned with `UsageSummary.days`.
     public let daily: [Int64]
+    /// Estimated USD per hour for Today, aligned with `UsageSummary.days`. Unknown prices are nil.
+    public var hourlyCostUSD: [Double?]? = nil
 }
 
 public struct UsageTotals: Codable, Equatable, Sendable {
@@ -163,6 +165,8 @@ public struct UsageTotals: Codable, Equatable, Sendable {
     public let activeAccounts: Int
     public let busiestDay: String?
     public let busiestDayTokens: Int64
+    public var busiestHour: String? = nil
+    public var busiestHourTokens: Int64? = nil
 }
 
 public struct UsageSummary: Codable, Equatable, Sendable {
@@ -253,6 +257,7 @@ public struct UsageHistorySnapshot: Sendable {
             var tokens: Int64 = 0
             var cost: Double?
             var daily: [Int64]
+            var hourlyCost: [Double?]?
             var services: [String: Int64] = [:]
         }
         var groups: [String: Accumulator] = [:]
@@ -286,11 +291,15 @@ public struct UsageHistorySnapshot: Sendable {
                 label = point.project.map(projectLabel) ?? ""
             }
             guard let key else { continue }
-            var group = groups[key] ?? Accumulator(label: label, daily: zeros)
+            var group = groups.removeValue(forKey: key) ?? Accumulator(
+                label: label, daily: zeros, hourlyCost: period == .today ? Array(repeating: nil, count: days.count) : nil)
             group.tokens += point.tokens
             group.daily[slot] += point.tokens
             group.services[point.service, default: 0] += point.tokens
-            if let value = point.costUSD { group.cost = (group.cost ?? 0) + value }
+            if let value = point.costUSD {
+                group.cost = (group.cost ?? 0) + value
+                group.hourlyCost?[slot] = (group.hourlyCost?[slot] ?? 0) + value
+            }
             groups[key] = group
         }
 
@@ -301,17 +310,20 @@ public struct UsageHistorySnapshot: Sendable {
             for slot in zeros.indices { dailyTotals[slot] += max(account[slot], transcript[slot]) }
         }
         let busiest = dailyTotals.enumerated().max { ($0.element, $1.offset) < ($1.element, $0.offset) }
+        let busiestBucket = busiest.flatMap { $0.element > 0 ? days[$0.offset] : nil }
+        let busiestTokens = busiest?.element ?? 0
         let ordered = groups.map { key, group in
             UsageGroup(key: key, label: group.label,
                        services: group.services.sorted { ($1.value, $0.key) < ($0.value, $1.key) }.map(\.key),
-                       tokens: group.tokens, costUSD: group.cost, daily: group.daily)
+                       tokens: group.tokens, costUSD: group.cost, daily: group.daily, hourlyCostUSD: group.hourlyCost)
         }.sorted { ($1.tokens, $0.key) < ($0.tokens, $1.key) }
         return UsageSummary(
             period: period, grouping: grouping, days: days, dailyTotals: dailyTotals, groups: ordered,
             totals: UsageTotals(
                 tokens: dailyTotals.reduce(0, +), costUSD: cost, activeAccounts: accounts.count,
-                busiestDay: busiest.flatMap { $0.element > 0 ? days[$0.offset] : nil },
-                busiestDayTokens: busiest?.element ?? 0))
+                busiestDay: busiestBucket, busiestDayTokens: busiestTokens,
+                busiestHour: period == .today ? busiestBucket : nil,
+                busiestHourTokens: period == .today ? busiestTokens : nil))
     }
 
     static func projectLabel(_ project: String) -> String {

@@ -35,6 +35,7 @@ public actor ClaudeChatIndex {
 
     private var roots: [URL]
     private let cacheFile: URL?
+    private let allowsRead: @Sendable (URL) -> Bool
     private var entries: [String: Entry] = [:]
     private var failedCount = 0
     private var loadedCache = false
@@ -48,9 +49,11 @@ public actor ClaudeChatIndex {
 
     func setWillCommitScan(_ hook: @escaping @Sendable () async -> Void) { willCommitScan = hook }
 
-    public init(roots: [URL] = ClaudeCostScanner.defaultRoots(), cacheFile: URL? = nil) {
+    public init(roots: [URL] = ClaudeCostScanner.defaultRoots(), cacheFile: URL? = nil,
+                allowsRead: @escaping @Sendable (URL) -> Bool = { _ in true }) {
         self.roots = roots
         self.cacheFile = cacheFile
+        self.allowsRead = allowsRead
     }
 
     /// Adds config dirs (such as each Claude account's profile home); duplicates resolve to one folder.
@@ -97,6 +100,7 @@ public actor ClaudeChatIndex {
             skippedFileCount: failedCount,
             unreadableRecordCount: all.reduce(0) { $0 + $1.summary.unreadableRecordCount })
         if !found.isEmpty { snapshot.sourceCounts = [.claude: found.count] }
+        if !all.isEmpty { snapshot.librarySourceCounts = [.claude: all.count] }
         return snapshot
     }
 
@@ -104,7 +108,7 @@ public actor ClaudeChatIndex {
     public func detail(
         for id: String, offset: Int = 0, limit: Int = 100, query: String = "", filter: ChatMessageFilter = .all
     ) async throws -> ChatThreadDetail? {
-        guard let entry = entries[id] else { return nil }
+        guard let entry = entries[id], allowsRead(URL(fileURLWithPath: id)) else { return nil }
         let messages: [ChatMessage]
         if let cached = detailCache, cached.path == id, cached.signature == entry.signature {
             messages = cached.messages
@@ -137,7 +141,8 @@ public actor ClaudeChatIndex {
         loadCacheIfNeeded()
         let generation = clearGeneration
         let roots = roots
-        let found = await Task.detached(priority: .utility) { Self.candidates(roots) }.value
+        let allowsRead = allowsRead
+        let found = await Task.detached(priority: .utility) { Self.candidates(roots, allowsRead: allowsRead) }.value
         var next: [String: Entry] = [:]
         var jobs: [(URL, Signature, State?)] = []
         for (url, signature) in found {
@@ -183,29 +188,29 @@ public actor ClaudeChatIndex {
 
     /// Each root's `projects/` dir (or the root itself), resolved and deduped. The History watcher
     /// watches these same folders.
-    public nonisolated static func projectsFolders(_ roots: [URL]) -> [URL] {
+    public nonisolated static func projectsFolders(_ roots: [URL], allowsRead: (URL) -> Bool = { _ in true }) -> [URL] {
         var seen = Set<String>()
         return roots.compactMap { root in
             let inner = root.appending(path: "projects", directoryHint: .isDirectory)
-            guard let projects = [inner, root].first(where: isDirectory)?.resolvingSymlinksInPath(),
+            guard let projects = [inner, root].first(where: { allowsRead($0) && isDirectory($0) })?.resolvingSymlinksInPath(),
                   seen.insert(projects.path).inserted else { return nil }
             return projects
         }
     }
 
     /// Top-level session files of every distinct `projects/` dir, with size and date.
-    nonisolated static func candidates(_ roots: [URL]) -> [(URL, Signature)] {
+    nonisolated static func candidates(_ roots: [URL], allowsRead: (URL) -> Bool = { _ in true }) -> [(URL, Signature)] {
         let fileManager = FileManager.default
         var found: [(URL, Signature)] = []
-        for projects in projectsFolders(roots) {
+        for projects in projectsFolders(roots, allowsRead: allowsRead) {
             guard let folders = try? fileManager.contentsOfDirectory(
                     at: projects, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)
             else { continue }
-            for folder in folders where isDirectory(folder) {
+            for folder in folders where allowsRead(folder) && isDirectory(folder) {
                 let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
                 for file in (try? fileManager.contentsOfDirectory(
                     at: folder, includingPropertiesForKeys: keys, options: .skipsHiddenFiles)) ?? []
-                where file.pathExtension == "jsonl" {
+                where file.pathExtension == "jsonl" && allowsRead(file) {
                     guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true
                     else { continue }
                     found.append((file, Signature(size: Int64(values.fileSize ?? 0),
@@ -438,6 +443,7 @@ extension ChatHistorySnapshot {
             unreadableRecordCount: first.unreadableRecordCount + second.unreadableRecordCount,
             reparsedFileCount: first.reparsedFileCount + second.reparsedFileCount)
         merged.sourceCounts = first.sourceCounts.merging(second.sourceCounts, uniquingKeysWith: +)
+        merged.librarySourceCounts = first.librarySourceCounts.merging(second.librarySourceCounts, uniquingKeysWith: +)
         return merged
     }
 }
