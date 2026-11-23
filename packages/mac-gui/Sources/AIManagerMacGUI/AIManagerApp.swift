@@ -13,6 +13,8 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     private var modelObservers = Set<AnyCancellable>()
     private var quotaNotifier: QuotaNotifier?
     private var autoSwitch: AutoSwitchController?
+    /// Set by a background launch (`open -g`): the main window waits for the first activation.
+    private var presentsWindowOnActivation = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         EventLog.standard.recordStart(event: "app_start", version: UpdateChecker.installedVersion)
@@ -171,7 +173,11 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
         )
         self.menuController = menuController
         menuController.install()
-        if AIManagerLaunchContext.shouldShowMainWindow() { presentWindow() }
+        switch AIManagerLaunchContext.mainWindow(isActive: NSApp.isActive) {
+        case .now: presentWindow()
+        case .onFirstActivation: presentsWindowOnActivation = true
+        case .none: break
+        }
         Task { await model.load() }
         UpdateChecker.shared.start()
     }
@@ -179,6 +185,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     /// The main window and its pages exist only while it is shown: closing it, or hiding it to the
     /// menu bar, releases them. A login launch builds no window until one is asked for.
     private func presentWindow() {
+        presentsWindowOnActivation = false
         NSApp.setActivationPolicy(.regular)
         if let windowController {
             windowController.present()
@@ -203,6 +210,7 @@ private final class AIManagerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        if presentsWindowOnActivation { presentWindow() }
         Task { await model.reloadAfterActivation() }
     }
 
