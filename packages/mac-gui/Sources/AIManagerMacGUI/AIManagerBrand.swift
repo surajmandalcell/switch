@@ -429,6 +429,7 @@ final class AIManagerStatusItemController: NSObject {
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     store = MenuBarPopoverStore(snapshot: snapshot, actions: actions)
     super.init()
+    MenuBarBarsDialog.store = store
 
     let content = MenuBarPopover(store: store)
     popover.behavior = .transient

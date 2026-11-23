@@ -184,6 +184,8 @@ struct MenuBarAccountSnapshot: Identifiable, Equatable, Sendable {
   let showsUsage: Bool
   /// A Droid account whose usage waits for the owner to allow access to Droid's login.
   let needsDroidAccess: Bool
+  /// The service's Choose Bars picks; empty keeps the default rule.
+  var barChoices = MenuBarBarChoices()
 
   init(
     id: UUID,

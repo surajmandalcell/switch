@@ -60,6 +60,29 @@ enum MenuBarServicePreferences {
   }
 }
 
+/// Which usage bars one service shows in the popover, by window title. A title with no entry follows the
+/// default rule: the first two bars at a glance, every bar when expanded.
+struct MenuBarBarChoices: Equatable, Sendable {
+  var glance: [String: Bool] = [:]
+  var expanded: [String: Bool] = [:]
+  var isDefault: Bool { glance.isEmpty && expanded.isEmpty }
+}
+
+enum MenuBarBarPreferences {
+  static func key(_ provider: ProviderID) -> String { "menuBarBars.\(provider.rawValue)" }
+
+  static func choices(for provider: ProviderID, defaults: UserDefaults = .standard) -> MenuBarBarChoices {
+    let stored = defaults.dictionary(forKey: key(provider))
+    return MenuBarBarChoices(glance: stored?["glance"] as? [String: Bool] ?? [:],
+      expanded: stored?["expanded"] as? [String: Bool] ?? [:])
+  }
+
+  static func set(_ choices: MenuBarBarChoices, for provider: ProviderID, defaults: UserDefaults = .standard) {
+    if choices.isDefault { defaults.removeObject(forKey: key(provider)); return }
+    defaults.set(["glance": choices.glance, "expanded": choices.expanded], forKey: key(provider))
+  }
+}
+
 enum MenuBarUsagePreferences {
   static let expandedAccountKey = "menuBarExpandedAccount"
   static let defaultKey = "showAccountUsageInMenuBar"
