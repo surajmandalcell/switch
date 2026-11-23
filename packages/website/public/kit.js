@@ -78,7 +78,8 @@
       el.classList.add('k-marq');
       el.innerHTML = `<div class="k-marq-in">${row}${row}</div>`;
     });
-    document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => { navigator.clipboard?.writeText(b.dataset.copy).catch(() => {}); b.classList.add('done'); setTimeout(() => b.classList.remove('done'), 1500); }));
+    // The Homebrew line copies on a click anywhere; its icon sits inside.
+    document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => { const ic = b.querySelector('.k-copy') || b; navigator.clipboard?.writeText(b.dataset.copy).catch(() => {}); ic.classList.add('done'); setTimeout(() => ic.classList.remove('done'), 1500); }));
   }
   const FAQ = [
     ['Is Switch free?', 'Yes. Switch is free and open source under the MIT license.'],
@@ -492,7 +493,7 @@
     document.querySelectorAll('[data-backup]').forEach(initBackup);
     document.querySelectorAll('[data-autosw]').forEach(initAuto);
     document.querySelectorAll('[data-desk]').forEach(initDesk);
-    document.querySelectorAll('[data-copy]').forEach(b => { if (!b.innerHTML.trim()) b.innerHTML = COPY_SVG; });
+    document.querySelectorAll('[data-copy]').forEach(b => { const ic = b.querySelector('.k-copy') || b; if (!ic.innerHTML.trim()) ic.innerHTML = COPY_SVG; });
     initExtras();
     initPrivacyPop();
   }
