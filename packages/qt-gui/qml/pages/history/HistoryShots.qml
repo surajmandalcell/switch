@@ -156,7 +156,7 @@ Item {
     // hover a row with real pointer input, then the row's context menu
     s.push(function () { var q = at(p.threadList.view.itemAtIndex(2), 0.5, 0.5); Harness.move(win, q.x, q.y) })
     s.push(400)
-    s.push(function () { shot("history-hover"); var it = p.threadList.view.itemAtIndex(1); Theme.menu.open(it, ["Copy title"], -1, function () { p.copyText(it.thread.title) }) })
+    s.push(function () { shot("history-hover"); var it = p.threadList.view.itemAtIndex(1); p.threadMenu(it, it.thread) })
     s.push(300)
     s.push(function () { shot("history-menu"); Theme.menu.choose(0) })
     s.push(200)
@@ -177,7 +177,7 @@ Item {
     s.push(400)
     s.push(function () { shot("history-code-end") })
     // the Copy button with real input: visible messages, raw text
-    s.push(function () { p.messageList.scrollTo(-1e9); var q = at(p.messageSearch, 0.08, 1); Harness.click(win, q.x, q.y + 12 + 16) })
+    s.push(function () { p.messageList.scrollTo(-1e9); var q = at(p.copyAll, 0.5, 0.5); Harness.click(win, q.x, q.y) })
     s.push(200)
     s.push(function () { Harness.log("COPY visible=" + p.lastCopied.length + " chars, starts " + JSON.stringify(p.lastCopied.substring(0, 60))); shot("history-copied"); Harness.move(win, 100, win.height - 40) })
     // role filter: Tools off

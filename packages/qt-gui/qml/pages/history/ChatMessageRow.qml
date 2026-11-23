@@ -12,6 +12,7 @@ Item {
   property bool fadeIn: false
   signal toggle(int id)
   signal copy(string text)
+  signal metaMenu(Item at)
   readonly property var roleNames: ({ user: "Prompt", assistant: "Response", tool: "Tool", other: "Other" })
   height: col.y + col.height + 4
   opacity: 1
@@ -36,6 +37,8 @@ Item {
       color: Theme.ink(0.02)
       border.width: Theme.hair
       border.color: Theme.separator
+      // right-click on the strip: Copy Message, Copy Model, Copy Date (the copy button keeps the left click)
+      MouseArea { anchors.fill: parent; acceptedButtons: Qt.RightButton; onClicked: row.metaMenu(parent) }
       Item {
         x: 12
         width: parent.width - 24
