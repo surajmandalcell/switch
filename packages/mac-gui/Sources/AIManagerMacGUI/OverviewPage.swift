@@ -439,7 +439,7 @@ struct OverviewPage: View {
           else { AIMSkeleton().frame(width: 180, height: OverviewLegend.height).padding(.horizontal, AIMTheme.cardInset) }
           if period == .today {
             Text("Codex account totals, Droid, and provider charts have no hourly data.")
-              .aimText(.caption, tint: Color(nsColor: .secondaryLabelColor)).lineLimit(1)
+              .aimText(.caption).foregroundStyle(.secondary).lineLimit(1)
               .help(OverviewHour.missingNote)
               .padding(.horizontal, AIMTheme.cardInset)
           }
