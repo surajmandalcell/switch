@@ -536,8 +536,11 @@ struct AccountWindow: View {
 /// The top row's Add button: a square `plus` on every page, widened into "+ Add Account" on Accounts
 /// so a new user can tell what it does. Each page draws its own top row, so the button follows the
 /// page the window shows next (`didShowPage`) one run-loop turn later, once that page is on screen
-/// and the change can animate. Reduce Motion swaps it at once.
+/// and the change can animate. Reduce Motion swaps it at once. A cached page whose root is rebuilt
+/// for a new `page` (a prewarmed Accounts page on its first visit) also follows `page`, in case that
+/// page missed the notice.
 struct AIMAddAccountButton: View {
+  let page: AIManagerPage
   let disabled: Bool
   let action: () -> Void
   @State private var wide: Bool
@@ -547,6 +550,7 @@ struct AIMAddAccountButton: View {
   static let motion = Animation.spring(duration: 0.32, bounce: 0.12)
 
   init(page: AIManagerPage, disabled: Bool, action: @escaping () -> Void) {
+    self.page = page
     self.disabled = disabled
     self.action = action
     _wide = State(initialValue: page == .accounts)
@@ -574,6 +578,9 @@ struct AIMAddAccountButton: View {
       DispatchQueue.main.async {
         withAnimation(reduceMotion ? nil : Self.motion) { wide = shown == .accounts }
       }
+    }
+    .onChange(of: page) { _, shown in
+      withAnimation(reduceMotion ? nil : Self.motion) { wide = shown == .accounts }
     }
   }
 }
