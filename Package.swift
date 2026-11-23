@@ -125,7 +125,7 @@ products.append(
 dependencies.append(
     .package(
         url: "https://github.com/samhqapp/indiecrumb-swift",
-        .upToNextMinor(from: "0.2.1")
+        .upToNextMinor(from: "0.3.0")
     )
 )
 targets.append(
