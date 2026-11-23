@@ -1454,6 +1454,9 @@ private final class AcceptanceReceipts {
         // An open popover (such as the History filter) is its own window.
         if let popover = NSApp.windows.first(where: { "\(type(of: $0))".contains("Popover") && $0.isVisible })?.contentView {
             writeSnapshot(of: popover, filename: "popover.png")
+        } else if let directory {
+            // No popover now: an older popover.png would sit beside this window.png.
+            try? FileManager.default.removeItem(at: directory.appending(path: "popover.png"))
         }
         guard let directory else { return }
         let hierarchy = AIManagerNativeContract.hierarchySnapshot(in: view)
@@ -1549,7 +1552,7 @@ private final class AcceptanceReceipts {
     private func clearReceipts() {
         guard let directory else { return }
         let fileManager = FileManager.default
-        for name in ["window-contract.json", "window.png", "menu-bar.png", "tray-glyphs.png", "provider-glyphs.png", "brand-sheet.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
+        for name in ["window-contract.json", "window.png", "menu-bar.png", "tray-glyphs.png", "provider-glyphs.png", "brand-sheet.png", "popover.png", "window-hierarchy.json", "window-did-miniaturize", "window-will-close"] {
             try? fileManager.removeItem(at: directory.appending(path: name))
         }
     }
@@ -1659,7 +1662,9 @@ enum SearchPreviewDriver {
         if let raw = PreviewArguments.value("right-click-at"), let view = window.contentView {
             let parts = raw.split(separator: ",").compactMap { Double($0) }
             if parts.count == 2 {
-                if !window.isVisible { window.alphaValue = 0; window.orderFrontRegardless() }
+                // A hidden window is ordered in, see-through, only while the menu is open, then put back.
+                let (hidden, alpha) = (!window.isVisible, window.alphaValue)
+                if hidden { window.alphaValue = 0; window.orderFrontRegardless() }
                 let point = NSPoint(x: parts[0], y: view.bounds.height - parts[1])
                 if let event = NSEvent.mouseEvent(
                     with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
@@ -1667,6 +1672,7 @@ enum SearchPreviewDriver {
                     print("RIGHT_CLICK_SENT")
                     window.sendEvent(event)
                 }
+                if hidden { window.orderOut(nil); window.alphaValue = alpha }
             }
         }
         guard CommandLine.arguments.contains(where: { $0.hasPrefix("--type-search=") }) else { return }
