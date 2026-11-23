@@ -276,7 +276,8 @@ final class AccountViewModel: ObservableObject {
                     claude: paths.isolationRoot != nil ? nil : ClaudeChatIndex(
                         cacheFile: paths.applicationSupport.appending(path: "cache/claude-chat-history-v1.json")))
             chatHistoryMonitor = injectedChatHistoryMonitor
-                ?? FSEventChatHistoryMonitor(home: paths.sharedRoot)
+                ?? FSEventChatHistoryMonitor(home: paths.sharedRoot, claudeFolders: paths.isolationRoot != nil
+                    ? [] : ClaudeChatIndex.projectsFolders(ClaudeCostScanner.defaultRoots()))
         } catch {
             manager = nil
             chatHistoryProvider = nil

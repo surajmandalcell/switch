@@ -1511,6 +1511,19 @@ enum AIManagerNativeContract {
         where HistoryThreadFilter.toggling(toggle, in: selection, present: present) != expected {
         failures.append("The History filter breaks when \(name)")
       }
+      // Claude Code is its own provider, and the watcher wakes for its session files only.
+      if HistoryThreadFilter.toggling([.claude], in: [], present: present.union([.claude])) != present
+        || HistoryThreadFilter.provider(.claude) != .claudeCode || HistoryThreadFilter.provider(.cli) != .codex {
+        failures.append("The History filter does not keep Claude Code apart from Codex")
+      }
+      let claude = ["/c/projects"]
+      let wakes = { (path: String) in
+        ChatHistoryEventPolicy.shouldRefresh(homePath: "/codex", path: path, flags: 0, claudeFolders: claude)
+      }
+      if !wakes("/c/projects/-p/s.jsonl") || wakes("/c/projects/-p/s/subagents/a.jsonl")
+        || wakes("/c/projects/-p/notes.txt") || wakes("/other/s.jsonl") || !wakes("/codex/sessions/x.jsonl") {
+        failures.append("The History watcher wakes for the wrong Claude files")
+      }
     } else {
       failures.append("History filter persistence test store is unavailable")
     }

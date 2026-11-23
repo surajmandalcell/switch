@@ -13,10 +13,16 @@ enum ChatHistoryEventPolicy {
       | kFSEventStreamEventFlagEventIdsWrapped
       | kFSEventStreamEventFlagRootChanged)
 
-  static func shouldRefresh(homePath: String, path: String, flags: FSEventStreamEventFlags) -> Bool {
+  static func shouldRefresh(
+    homePath: String, path: String, flags: FSEventStreamEventFlags, claudeFolders: [String] = []
+  ) -> Bool {
     if flags & recoveryFlags != 0 { return true }
     let home = URL(fileURLWithPath: homePath).standardizedFileURL.path
     let candidate = URL(fileURLWithPath: path).standardizedFileURL.path
+    // Claude Code: a session file `projects/<folder>/<session>.jsonl`, not its subagent logs.
+    if claudeFolders.contains(where: { candidate.hasPrefix($0 + "/") }) {
+      return candidate.hasSuffix(".jsonl") && !candidate.contains("/subagents/")
+    }
     for directory in ["sessions", "archived_sessions"] {
       let root = home + "/" + directory
       if candidate == root || candidate.hasPrefix(root + "/") { return true }
@@ -27,12 +33,15 @@ enum ChatHistoryEventPolicy {
   }
 }
 
+/// Watches the Codex home and the Claude `projects` folders in one stream with one debounce.
 struct FSEventChatHistoryMonitor: ChatHistoryMonitoring {
   let home: URL
+  var claudeFolders: [URL] = []
 
   func changes() -> AsyncStream<Void> {
     AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-      let subscription = FSEventSubscription(home: home, continuation: continuation)
+      let subscription = FSEventSubscription(
+        home: home, claudeFolders: claudeFolders, continuation: continuation)
       continuation.onTermination = { _ in subscription.stop() }
       subscription.start()
     }
@@ -51,8 +60,11 @@ private final class FSEventSubscription: @unchecked Sendable {
     self.continuation.yield()
   }
 
-  init(home: URL, continuation: AsyncStream<Void>.Continuation) {
+  private let claudePaths: [String]
+
+  init(home: URL, claudeFolders: [URL], continuation: AsyncStream<Void>.Continuation) {
     homePath = home.standardizedFileURL.path
+    claudePaths = claudeFolders.map { $0.standardizedFileURL.path }.filter { $0 != home.standardizedFileURL.path }
     self.continuation = continuation
   }
 
@@ -77,7 +89,7 @@ private final class FSEventSubscription: @unchecked Sendable {
           subscription.signal(paths: paths, flags: flags)
         },
         &context,
-        [homePath] as CFArray,
+        ([homePath] + claudePaths) as CFArray,
         FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
         0.25,
         FSEventStreamCreateFlags(
@@ -117,7 +129,8 @@ private final class FSEventSubscription: @unchecked Sendable {
 
   private func signal(paths: [String], flags: [FSEventStreamEventFlags]) {
     guard zip(paths, flags).contains(where: {
-      ChatHistoryEventPolicy.shouldRefresh(homePath: homePath, path: $0.0, flags: $0.1)
+      ChatHistoryEventPolicy.shouldRefresh(
+        homePath: homePath, path: $0.0, flags: $0.1, claudeFolders: claudePaths)
     }) else { return }
     debouncer.poke()
   }
