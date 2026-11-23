@@ -501,7 +501,7 @@ final class AIManagerStatusItemController: NSObject {
     button.sendAction(on: [.leftMouseUp, .rightMouseUp])
   }
 
-  /// Right-click menu of the status item: open the app, refresh, Settings, Quit.
+  /// Right-click menu of the status item: open the app, refresh, Settings, About, Quit.
   func makeContextMenu() -> NSMenu {
     let name = AIManagerBrand.bundleDisplayName(in: bundle)
     let menu = NSMenu(title: name)
@@ -509,6 +509,7 @@ final class AIManagerStatusItemController: NSObject {
       ("Open \(name)", #selector(contextOpen), ""),
       ("Refresh Usage", #selector(contextRefresh), ""),
       ("Settings…", #selector(contextSettings), ","),
+      ("About \(name)", #selector(contextAbout), ""),
     ]
     for (title, action, key) in items {
       let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
@@ -524,6 +525,7 @@ final class AIManagerStatusItemController: NSObject {
   @objc private func contextOpen() { store.openMainWindow() }
   @objc private func contextRefresh() { Task { await store.refreshUsage() } }
   @objc private func contextSettings() { store.actions.openSettings() }
+  @objc private func contextAbout() { SwitchAbout.show() }
 
   @objc private func statusItemClicked() {
     guard NSApp.currentEvent?.type == .rightMouseUp else {

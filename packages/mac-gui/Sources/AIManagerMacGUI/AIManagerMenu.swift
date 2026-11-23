@@ -69,6 +69,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
     NSApp.mainMenu = mainMenu
   }
 
+  @objc func showAbout(_ sender: Any?) { SwitchAbout.show() }
   @objc func showSettings(_ sender: Any?) { navigate(to: .settings) }
   @objc func showOverview(_ sender: Any?) { navigate(to: .overview) }
   @objc func showAccounts(_ sender: Any?) { navigate(to: .accounts) }
@@ -102,7 +103,7 @@ final class AIManagerMenuController: NSObject, NSMenuItemValidation {
     servicesItem.submenu = services
     NSApp.servicesMenu = services
     return [
-      item("About \(applicationName)", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp),
+      item("About \(applicationName)", #selector(showAbout(_:)), target: self),
       .separator(),
       item("Settings…", #selector(showSettings(_:)), key: ",", target: self),
       .separator(),

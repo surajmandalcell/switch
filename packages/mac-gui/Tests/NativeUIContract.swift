@@ -1205,8 +1205,8 @@ enum AIManagerNativeContract {
       defaults: defaults,
       actions: MenuBarPopoverActions(openMainWindow: {}, switchAccount: { _ in }))
     let titles = statusController.makeContextMenu().items.filter { !$0.isSeparatorItem }.map(\.title)
-    expect(titles.count == 4 && titles[1] == "Refresh Usage" && titles[2] == "Settings…"
-      && titles[3].hasPrefix("Quit "), "Status item menu is \(titles)")
+    expect(titles.count == 5 && titles[1] == "Refresh Usage" && titles[2] == "Settings…"
+      && titles[3].hasPrefix("About ") && titles[4].hasPrefix("Quit "), "Status item menu is \(titles)")
     expect(statusController.usesPopover, "The status item keeps its context menu after setup")
 
     // Refresh on open is off by default; Reset settings restores every default.
@@ -1528,8 +1528,11 @@ enum AIManagerNativeContract {
     for (index, page) in AIManagerPage.allCases.enumerated() {
       command("View", page.title, key: String(index + 1))
     }
+    if mainMenu.item(withTitle: applicationName)?.submenu?.item(withTitle: "About \(applicationName)")?.action
+      != #selector(AIManagerMenuController.showAbout(_:)) {
+      failures.append("\(applicationName) > About \(applicationName) does not open the Switch About window")
+    }
     for (menu, title, action) in [
-      (applicationName, "About \(applicationName)", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
       (applicationName, "Hide \(applicationName)", #selector(NSApplication.hide(_:))),
       (applicationName, "Hide Others", #selector(NSApplication.hideOtherApplications(_:))),
       (applicationName, "Show All", #selector(NSApplication.unhideAllApplications(_:))),

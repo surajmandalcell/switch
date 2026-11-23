@@ -332,6 +332,7 @@ struct SettingsPage: View {
         .transition(.opacity)
       }
       SettingsSearchCards(model: model, query: query)
+      if filter.showsAll { SwitchAboutSettings() }
       #if AI_MANAGER_PREVIEW
       if model.isDemo, filter.showsAll {
         AIMSection("Demo states") {
