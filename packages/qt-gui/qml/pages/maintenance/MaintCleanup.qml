@@ -1,8 +1,10 @@
 import QtQuick
 import "MaintFmt.js" as F
 
-// The Cleanup tab (maintenance.md 2.3, 3): controls, conversations by filter, files by category, Switch's
-// own cache, selection, review, recoverable trash, and the amber error card. Selection lives here and is
+// The Cleanup tab (maintenance.md 2.3, 3), summary first as CleanupPage.swift: controls, the safe summary, review,
+// every category (safe rows first), Switch's own cache, conversations by filter, the selection split by tier,
+// the red trash group, and the amber error card. Tier sums come from cleanup.summary, or from the view on an
+// older helper. Selection lives here and is
 // sent as item ids; the helper keeps the scan and the reviewed plan (rpc.md cleanup.*).
 Column {
   id: cl
@@ -39,6 +41,7 @@ Column {
   property bool loading: false
   property string error: ""
   property var review: null
+  property var summary: null           // cleanup.summary of the last scan, or null on an older helper
   property bool showReviewItems: false
   property string scanToken: ""
   property real scanCall: -1
@@ -77,8 +80,14 @@ Column {
     var shown = cats.filter(function (x) { return x.items.length > 0 })
     var counted = []
     shown.forEach(function (x) { if (x.c.id !== "images") counted = counted.concat(x.items) })
+    // Summary first (CleanupPage.swift cleanupCards): safe rows lead; a pasted-images row is in its chat's bytes already.
+    var safe = shown.filter(function (x) { return x.c.risk === "safe" }), work = shown.filter(function (x) { return x.c.risk !== "safe" })
+    var tierBytes = function (list) { var s = 0; list.forEach(function (x) { if (x.c.id !== "images") s += x.bytes }); return s }
+    var safeBytes = tierBytes(safe), workBytes = tierBytes(work)
     return { cats: cats, shown: shown, matching: matching, choices: Object.keys(choices).sort(), counted: counted.length, countedBytes: cl.sum(counted),
-             samples: samples.filter(function (s) { return cl.matches(s.fetchedAt) }) }
+             samples: samples.filter(function (s) { return cl.matches(s.fetchedAt) }),
+             ordered: safe.concat(work), safe: safe, safeBytes: safeBytes, workBytes: workBytes,
+             inUseBytes: Math.max(0, (Number(scan.totalBytes) || 0) - safeBytes - workBytes) }
   }
   function groupsOf(catID, items) {
     var by = {}, order = []
@@ -90,14 +99,15 @@ Column {
   }
   // A chat picked for removal drops its own pasted-images row, so one file is never handled twice.
   // Set imperatively: as a binding it re-entered itself through the selection rows that read it.
-  property var picked: ({ items: [], bytes: 0 })
+  property var picked: ({ items: [], bytes: 0, safeBytes: 0, workBytes: 0 })
   function updatePicked() {
-    var v = view, all = []
-    if (v) v.cats.forEach(function (x) { x.items.forEach(function (it) { if (cl.selection[it.id]) all.push(it) }) })
+    var v = view, all = [], safe = {}
+    if (v) v.cats.forEach(function (x) { x.items.forEach(function (it) { if (cl.selection[it.id]) { all.push(it); if (x.c.risk === "safe") safe[it.id] = true } }) })
     var removed = {}
     all.forEach(function (it) { if (!it.isRewrite) removed[it.path] = true })
     var items = all.filter(function (it) { return !it.isRewrite || !removed[it.path] })
-    picked = { items: items, bytes: sum(items) }
+    picked = { items: items, bytes: sum(items), safeBytes: sum(items.filter(function (it) { return safe[it.id] })),
+               workBytes: sum(items.filter(function (it) { return !safe[it.id] })) }
   }
   onViewChanged: updatePicked()
   onRevChanged: updatePicked()
@@ -176,6 +186,10 @@ Column {
           scannedSourceID = src.id
           loading = false
           resetSelection()
+          // The helper's tier sums cover the whole scan; an older helper leaves summary null and the page sums the view.
+          summary = null
+          if (Helper.hasMethod("cleanup.summary"))
+            page.rpc("cleanup.summary", {}, function (s) { if (cl.scanToken === token && s) summary = s })
         }
         if (src.tool !== "codex") { done([], null); return }
         page.rpc("cleanup.samples", {}, function (smp, err3) {
@@ -191,8 +205,15 @@ Column {
     }, 0)
   }
 
-  function makeReview() {
+  // `ids` (cleanup.summary safeSourceIDs) may reach items outside the date and project filters.
+  function makeReview(ids) {
     var items = picked.items
+    if (ids) {
+      var want = {}
+      ids.forEach(function (id) { want[id] = true })
+      items = []
+      scan.categories.forEach(function (c) { c.items.forEach(function (it) { if (want[it.id]) items.push(it) }) })
+    }
     var finish = function (plan) {
       var catOf = {}
       scan.categories.forEach(function (c) { c.items.forEach(function (it) { catOf[it.id] = c }) })
@@ -222,6 +243,17 @@ Column {
     useSamples = false
     clearIndex = false
     makeReview()
+  }
+  // "Clear <size> safely": every visible item of the safe rows, nothing else.
+  function clearSafely() {
+    var next = {}
+    if (summary) summary.safeSourceIDs.forEach(function (id) { next[id] = true })
+    else view.safe.forEach(function (x) { x.items.forEach(function (it) { next[it.id] = true }) })
+    selection = next
+    ++rev
+    useSamples = false
+    clearIndex = false
+    makeReview(summary ? summary.safeSourceIDs : null)
   }
   function confirmApply() {
     var n = review ? review.itemCount : 0, b = review ? review.bytes : 0
@@ -288,6 +320,29 @@ Column {
     Icon { anchors.centerIn: parent; name: "chevronRight"; size: 11; color: Theme.secondary; rotation: parent.open ? 90 : 0
            Behavior on rotation { enabled: !Theme.reduceMotion; NumberAnimation { duration: Theme.motion ? 250 : 0; easing.type: Easing.Bezier; easing.bezierCurve: Theme.easeOut } } }
     MouseArea { anchors.fill: parent; anchors.margins: -4; onClicked: parent.toggled() }
+  }
+  // A legend dot (CleanupPage.swift dot()): 8 px circle, 6 gap, secondary text.
+  component Dot: Row {
+    property color dot: Theme.green
+    property alias text: dotText.text
+    spacing: 6
+    Rectangle { width: 8; height: 8; radius: 4; color: parent.dot; anchors.verticalCenter: parent.verticalCenter }
+    Txt { id: dotText; role: "secondary"; color: Theme.secondary; tabular: true }
+  }
+  // CleanupTierBar: 8 px, capsules 2 px apart, each at least 4 px, width ∝ bytes of (width - 4).
+  component TierBar: Item {
+    id: tb
+    property var parts: []           // [{color, bytes}]
+    readonly property real total: Math.max(1, parts.reduce(function (s, p) { return s + p.bytes }, 0))
+    height: 8
+    Accessible.ignored: true
+    Row {
+      spacing: 2
+      Repeater {
+        model: tb.parts.filter(function (p) { return p.bytes > 0 })
+        delegate: Rectangle { width: Math.max(4, (tb.width - 4) * modelData.bytes / tb.total); height: 8; radius: 4; color: modelData.color }
+      }
+    }
   }
   // Inline components do not see this file's ids, so the rows get the tab as `owner`.
   component ItemRow: MaintListRow {
@@ -381,7 +436,277 @@ Column {
     MaintRow { MaintLoadingLine {} }
   }
 
-  // MARK: 2 conversations by filter
+  // MARK: 2 summary first (CleanupPage.swift cleanupCards)
+
+  MaintCard {
+    id: summaryCard
+    visible: !!cl.source && !!cl.view
+    readonly property var v: cl.summary ? { safeBytes: cl.summary.safeBytes, workBytes: cl.summary.yourWorkBytes, inUseBytes: cl.summary.inUseBytes }
+                                        : (cl.view || { safeBytes: 0, workBytes: 0, inUseBytes: 0 })
+    Item {
+      width: parent.width
+      height: Math.max(sumText.height, clearBtn.height) + 36
+      Column {
+        id: sumText
+        x: 16
+        anchors.verticalCenter: parent.verticalCenter
+        width: parent.width - 32 - clearBtn.width - 16
+        spacing: 8
+        Txt { width: parent.width; role: "title"; tabular: true; elide: Text.ElideRight; text: F.size(summaryCard.v.safeBytes) + " can be freed safely" }
+        Txt { width: parent.width; role: "secondary"; color: Theme.secondary; wrapMode: Text.Wrap
+              text: cl.toolTitle + " uses " + F.size(cl.scan ? cl.scan.totalBytes : 0) + ". Logs, caches and old copies come back by themselves." }
+        Item {
+          width: parent.width
+          height: 10
+          TierBar { y: 2; width: parent.width
+                    parts: [{ color: Theme.green, bytes: summaryCard.v.safeBytes }, { color: Theme.amber, bytes: summaryCard.v.workBytes },
+                            { color: Theme.quaternary, bytes: summaryCard.v.inUseBytes }] }
+        }
+        Row {
+          spacing: 16
+          Dot { dot: Theme.green; text: "Safe " + F.size(summaryCard.v.safeBytes) }
+          Dot { dot: Theme.amber; text: "Your work " + F.size(summaryCard.v.workBytes) }
+          Dot { dot: Theme.quaternary; text: "In use or kept " + F.size(summaryCard.v.inUseBytes) }
+        }
+      }
+      PushButton {
+        id: clearBtn
+        objectName: "cleanup-clear-safely"
+        x: parent.width - 16 - width
+        anchors.verticalCenter: parent.verticalCenter
+        text: "Clear " + F.size(summaryCard.v.safeBytes) + " safely"
+        icon: "eraser"
+        prominent: true
+        enabled: !cl.busy && summaryCard.v.safeBytes > 0
+        onClicked: cl.clearSafely()
+      }
+    }
+  }
+
+  // MARK: 3 review
+
+  MaintCard {
+    id: reviewCard
+    visible: !!cl.review
+    title: "Review before cleanup"
+    readonly property var r: cl.review || { groups: [], samples: [], clearIndex: false, itemCount: 0, bytes: 0, plan: null }
+    Repeater {
+      model: reviewCard.r.groups
+      delegate: MaintRow {
+        Item { width: parent.width; height: 16
+          Txt { text: modelData.title }
+          CountCol { x: parent.width - 80 - 8 - 96; count: modelData.count }
+          SizeCol { x: parent.width - 80; bytes: modelData.bytes } }
+      }
+    }
+    MaintRow {
+      visible: reviewCard.r.samples.length > 0
+      Item { width: parent.width; height: 16
+        Txt { text: "Usage readings" }
+        CountCol { x: parent.width - 80 - 8 - 96; count: reviewCard.r.samples.length }
+        SizeCol { x: parent.width - 80; bytes: cl.sum(reviewCard.r.samples) } }
+    }
+    MaintRow {
+      visible: reviewCard.r.clearIndex
+      Item { width: parent.width; height: 16
+        Txt { text: "Conversation index" }
+        SizeCol { x: parent.width - 80; bytes: cl.cacheSizes.conversationBytes } }
+    }
+    MaintRow {
+      Item { width: parent.width; height: 16
+        Txt { text: "Total"; wght: 590 }
+        CountCol { x: parent.width - 80 - 8 - 96; count: reviewCard.r.itemCount }
+        SizeCol { x: parent.width - 80; bytes: reviewCard.r.bytes; wght: 590 } }
+    }
+    MaintRow {
+      visible: !!reviewCard.r.plan
+      Item {
+        width: parent.width
+        height: 16
+        Row {
+          id: linkRow
+          spacing: 6
+          Icon { name: "chevronRight"; size: 11; color: Theme.link; anchors.verticalCenter: parent.verticalCenter; rotation: cl.showReviewItems ? 90 : 0
+                 Behavior on rotation { NumberAnimation { duration: Theme.motion ? 250 : 0 } } }
+          Txt { color: Theme.link; text: cl.showReviewItems ? "Hide the exact items" : "Show the exact " + F.num(reviewCard.r.itemCount) + " items" }
+        }
+        Item {
+          width: linkRow.width; height: 16
+          activeFocusOnTab: true
+          Accessible.role: Accessible.Button
+          Accessible.name: linkRow.children[1].text
+          Keys.onSpacePressed: cl.showReviewItems = !cl.showReviewItems
+          Keys.onReturnPressed: cl.showReviewItems = !cl.showReviewItems
+          FocusFill { anchors.margins: -3; radius: 4 }
+          MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: cl.showReviewItems = !cl.showReviewItems }
+        }
+      }
+    }
+    MaintRow {
+      visible: !!reviewCard.r.plan && cl.showReviewItems
+      ListView {
+        id: planList
+        width: parent.width
+        height: reviewCard.r.plan ? Math.min(reviewCard.r.plan.items.length, 8) * 30 : 0
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        cacheBuffer: 1000000      // every row exists, so Tab walks the whole list and scrolls it
+        model: reviewCard.r.plan ? reviewCard.r.plan.items : []
+        delegate: Item {
+          width: planList.width
+          height: 30
+          MaintCopyPath { x: 4; anchors.verticalCenter: parent.verticalCenter; width: Math.min(implicitWidth, parent.width - 8 - 8 - sz.width); path: modelData.path; tip: modelData.title
+                          onActiveFocusChanged: if (activeFocus) planList.positionViewAtIndex(index, ListView.Contain) }
+          Txt { id: sz; anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter
+                role: "secondary"; color: Theme.secondary; tabular: true; text: F.size(modelData.bytes) }
+        }
+      }
+    }
+    MaintRow {
+      Txt { width: parent.width; role: "secondary"; color: Theme.secondary; wrapMode: Text.Wrap
+            text: cl.review ? F.reviewNote(cl.review, cl.toolTitle, cl.isCodex) : "" }
+    }
+    MaintRow {
+      Item {
+        width: parent.width
+        height: 28
+        PushButton { text: "Cancel"; onClicked: cl.review = null }
+        PushButton { anchors.right: parent.right; text: "Move to trash"; icon: "trash"; prominent: true; enabled: !cl.busy; onClicked: cl.confirmApply() }
+      }
+    }
+  }
+
+  // MARK: 4 everything Cleanup found, safe rows first
+
+  MaintCard {
+    id: filesCard
+    visible: !!cl.source && !!cl.scan
+    title: "Everything Cleanup found"
+    bottomInset: 4.5
+    enabled: !cl.busy
+    accessory: Row { spacing: 16; Dot { dot: Theme.green; text: "Safe" } Dot { dot: Theme.amber; text: "Check first" } }
+    Item {
+      visible: !!cl.view && cl.view.shown.length === 0
+      width: parent.width
+      height: visible ? 14 + (cl.range !== "All time" ? 28 : 14) + 14 : 0
+      Txt { x: 16; y: (parent.height - height) / 2; role: "secondary"; color: Theme.secondary
+            text: cl.view ? F.nothingText(cl.range, cl.toolTitle, cl.scan.totalBytes) : "" }
+      PushButton { x: parent.width - 16 - width; y: 14; visible: cl.range !== "All time"; text: "Show all time"; onClicked: cl.range = "All time" }
+    }
+    Column {
+      visible: !!cl.view && cl.view.shown.length > 0
+      width: parent.width
+      topPadding: 4
+      Repeater {
+        model: cl.view ? cl.view.ordered : []
+        delegate: Column {
+          id: block
+          width: parent.width
+          readonly property var cat: modelData.c
+          readonly property bool open: cl.isOpen(cat.id)
+          Rectangle { visible: index > 0; x: 16; width: parent.width - 32; height: Theme.hair; color: Theme.tableSeparator }
+          MaintListRow {
+            id: catRow
+            minHeight: 52
+            contentHeight: catText.height
+            name: block.cat.title
+            expandable: true
+            open: block.open
+            onClicked: cl.toggleExpanded(block.cat.id)
+            Disclosure { anchors.verticalCenter: parent.verticalCenter; open: block.open; onToggled: cl.toggleExpanded(block.cat.id) }
+            MaintCheck { x: 20; anchors.verticalCenter: parent.verticalCenter; label: block.cat.title; value: cl.stateOf(modelData.items)
+                         onClicked: cl.toggle(modelData.items) }
+            // The tier glyph, 18 wide, replaces the old "Check first" badge.
+            Item {
+              x: 44
+              width: 18
+              height: 18
+              anchors.verticalCenter: parent.verticalCenter
+              readonly property bool safe: block.cat.risk === "safe"
+              Icon { anchors.centerIn: parent; size: 14; name: parent.safe ? "checkCircleFill" : "warnFill"; color: parent.safe ? Theme.green : Theme.amber }
+              ToolTipArea { text: parent.safe ? "Safe to clear" : "Your work, check first" }
+            }
+            Column {
+              id: catText
+              x: 44 + 18 + 8
+              width: catRow.contentWidth - x - 8 - 96 - 8 - 80
+              spacing: 2
+              Txt { width: Math.min(implicitWidth, parent.width); text: block.cat.title; elide: Text.ElideRight
+                    ToolTipArea { text: block.cat.title } }
+              Txt { width: parent.width; role: "secondary"; color: Theme.secondary; text: block.cat.detail; wrapMode: Text.Wrap
+                    maximumLineCount: 2; elide: Text.ElideRight; ToolTipArea { text: block.cat.detail } }
+            }
+            CountCol { x: catRow.contentWidth - 80 - 8 - 96; anchors.verticalCenter: parent.verticalCenter; count: modelData.items.length }
+            SizeCol { x: catRow.contentWidth - 80; anchors.verticalCenter: parent.verticalCenter; bytes: modelData.bytes }
+          }
+          // grouped by project: project rows (indent 28), their items at indent 56
+          Column {
+            visible: block.open && block.cat.byProject
+            width: parent.width
+            Repeater {
+              model: block.open && block.cat.byProject ? modelData.groups : []
+              delegate: Column {
+                id: grp
+                width: parent.width
+                readonly property bool open: cl.isOpen(modelData.id)
+                readonly property string name: modelData.path === "" ? "No project" : F.lastComponent(modelData.path)
+                MaintListRow {
+                  id: prow
+                  indent: 28
+                  name: grp.name
+                  expandable: true
+                  open: grp.open
+                  onClicked: cl.toggleExpanded(modelData.id)
+                  Disclosure { anchors.verticalCenter: parent.verticalCenter; open: grp.open; onToggled: cl.toggleExpanded(modelData.id) }
+                  MaintCheck { x: 20; anchors.verticalCenter: parent.verticalCenter; label: grp.name; value: cl.stateOf(modelData.items); onClicked: cl.toggle(modelData.items) }
+                  readonly property real avail: prow.contentWidth - 44 - 8 - 96 - 8 - 80 - 8
+                  Txt { id: pname; x: 44; anchors.verticalCenter: parent.verticalCenter; width: Math.min(implicitWidth, prow.avail * 0.6); text: grp.name; elide: Text.ElideMiddle
+                        ToolTipArea { text: modelData.path === "" ? "No project folder" : grp.name + "\n" + modelData.path } }
+                  Txt { x: pname.x + pname.width + 8; anchors.verticalCenter: parent.verticalCenter; visible: modelData.path !== ""
+                        width: Math.min(implicitWidth, prow.avail - pname.width - 8); role: "secondary"; color: Theme.secondary; font.family: "monospace"
+                        text: F.home(modelData.path, cl.page ? cl.page.userHome : ""); elide: Text.ElideLeft; ToolTipArea { text: parent.text } }
+                  CountCol { x: prow.contentWidth - 80 - 8 - 96; anchors.verticalCenter: parent.verticalCenter; count: modelData.items.length }
+                  SizeCol { x: prow.contentWidth - 80; anchors.verticalCenter: parent.verticalCenter; bytes: modelData.bytes }
+                }
+                ItemList { visible: grp.open; items: grp.open ? modelData.items : []; indent: 56; owner: cl }
+              }
+            }
+          }
+          ItemList { visible: block.open && !block.cat.byProject; items: block.open && !block.cat.byProject ? modelData.items : []; indent: 28; owner: cl }
+        }
+      }
+    }
+  }
+
+  // MARK: 5 Switch's own cache (Codex)
+
+  MaintCard {
+    visible: !!cl.scan && cl.isCodex && (cl.samples.length > 0 || cl.cacheSizes.conversationBytes > 0)
+    title: "Switch's own cache"
+    enabled: !cl.busy
+    accessory: Txt { role: "secondary"; color: Theme.secondary; tabular: true; text: F.size(cl.cacheSizes.usageBytes + cl.cacheSizes.conversationBytes) }
+    MaintRow {
+      MaintCheck {
+        readonly property int n: cl.view ? cl.view.samples.length : 0
+        text: "Usage readings · " + F.num(n) + " in this range"
+        enabled: n > 0
+        value: cl.useSamples && n > 0 ? 2 : 0
+        onClicked: { cl.useSamples = !cl.useSamples; cl.review = null }
+      }
+    }
+    MaintRow {
+      MaintCheck {
+        text: "Conversation index · " + F.size(cl.cacheSizes.conversationBytes)
+        enabled: cl.range === "All time" && cl.cacheSizes.conversationBytes > 0
+        value: cl.clearIndex ? 2 : 0
+        onClicked: cl.clearIndex = !cl.clearIndex
+        ToolTipArea { text: "Choose All time to clear the search index. It rebuilds when Chat History opens." }
+      }
+    }
+    MaintRow { Txt { role: "secondary"; color: Theme.secondary; text: "These caches rebuild when needed. Daily activity totals stay saved." } }
+  }
+
+  // MARK: 6 conversations by filter
 
   MaintCard {
     id: convCard
@@ -485,133 +810,7 @@ Column {
     }
   }
 
-  // MARK: 3 files you can clear
-
-  MaintCard {
-    id: filesCard
-    visible: !!cl.source && !!cl.scan
-    title: "Files you can clear"
-    bottomInset: 4.5
-    enabled: !cl.busy
-    accessory: RollText { role: "secondary"; color: Theme.secondary
-                          text: cl.view ? F.num(cl.view.counted) + " items · " + F.size(cl.view.countedBytes) + " of " + F.size(cl.scan.totalBytes) : "" }
-    Item {
-      visible: !!cl.view && cl.view.shown.length === 0
-      width: parent.width
-      height: visible ? 14 + (cl.range !== "All time" ? 28 : 14) + 14 : 0
-      Txt { x: 16; y: (parent.height - height) / 2; role: "secondary"; color: Theme.secondary
-            text: cl.view ? F.nothingText(cl.range, cl.toolTitle, cl.scan.totalBytes) : "" }
-      PushButton { x: parent.width - 16 - width; y: 14; visible: cl.range !== "All time"; text: "Show all time"; onClicked: cl.range = "All time" }
-    }
-    Column {
-      visible: !!cl.view && cl.view.shown.length > 0
-      width: parent.width
-      topPadding: 4
-      Repeater {
-        model: cl.view ? cl.view.shown : []
-        delegate: Column {
-          id: block
-          width: parent.width
-          readonly property var cat: modelData.c
-          readonly property bool open: cl.isOpen(cat.id)
-          Rectangle { visible: index > 0; x: 16; width: parent.width - 32; height: Theme.hair; color: Theme.tableSeparator }
-          MaintListRow {
-            id: catRow
-            minHeight: 52
-            contentHeight: catText.height
-            name: block.cat.title
-            expandable: true
-            open: block.open
-            onClicked: cl.toggleExpanded(block.cat.id)
-            Disclosure { anchors.verticalCenter: parent.verticalCenter; open: block.open; onToggled: cl.toggleExpanded(block.cat.id) }
-            MaintCheck { x: 20; anchors.verticalCenter: parent.verticalCenter; label: block.cat.title; value: cl.stateOf(modelData.items)
-                         onClicked: cl.toggle(modelData.items) }
-            Column {
-              id: catText
-              x: 44
-              width: catRow.contentWidth - x - 8 - 96 - 8 - 80
-              spacing: 2
-              Row {
-                spacing: 6
-                width: parent.width
-                Txt { id: catTitle; width: Math.min(implicitWidth, parent.width - (badge.visible ? badge.width + 6 : 0)); text: block.cat.title; elide: Text.ElideRight
-                      ToolTipArea { text: block.cat.title } }
-                Badge { id: badge; visible: block.cat.risk === "caution"; text: "Check first"; dot: Theme.amber; anchors.verticalCenter: catTitle.verticalCenter }
-              }
-              Txt { width: parent.width; role: "secondary"; color: Theme.secondary; text: block.cat.detail; wrapMode: Text.Wrap
-                    maximumLineCount: 2; elide: Text.ElideRight; ToolTipArea { text: block.cat.detail } }
-            }
-            CountCol { x: catRow.contentWidth - 80 - 8 - 96; anchors.verticalCenter: parent.verticalCenter; count: modelData.items.length }
-            SizeCol { x: catRow.contentWidth - 80; anchors.verticalCenter: parent.verticalCenter; bytes: modelData.bytes }
-          }
-          // grouped by project: project rows (indent 28), their items at indent 56
-          Column {
-            visible: block.open && block.cat.byProject
-            width: parent.width
-            Repeater {
-              model: block.open && block.cat.byProject ? modelData.groups : []
-              delegate: Column {
-                id: grp
-                width: parent.width
-                readonly property bool open: cl.isOpen(modelData.id)
-                readonly property string name: modelData.path === "" ? "No project" : F.lastComponent(modelData.path)
-                MaintListRow {
-                  id: prow
-                  indent: 28
-                  name: grp.name
-                  expandable: true
-                  open: grp.open
-                  onClicked: cl.toggleExpanded(modelData.id)
-                  Disclosure { anchors.verticalCenter: parent.verticalCenter; open: grp.open; onToggled: cl.toggleExpanded(modelData.id) }
-                  MaintCheck { x: 20; anchors.verticalCenter: parent.verticalCenter; label: grp.name; value: cl.stateOf(modelData.items); onClicked: cl.toggle(modelData.items) }
-                  readonly property real avail: prow.contentWidth - 44 - 8 - 96 - 8 - 80 - 8
-                  Txt { id: pname; x: 44; anchors.verticalCenter: parent.verticalCenter; width: Math.min(implicitWidth, prow.avail * 0.6); text: grp.name; elide: Text.ElideMiddle
-                        ToolTipArea { text: modelData.path === "" ? "No project folder" : grp.name + "\n" + modelData.path } }
-                  Txt { x: pname.x + pname.width + 8; anchors.verticalCenter: parent.verticalCenter; visible: modelData.path !== ""
-                        width: Math.min(implicitWidth, prow.avail - pname.width - 8); role: "secondary"; color: Theme.secondary; font.family: "monospace"
-                        text: F.home(modelData.path, cl.page ? cl.page.userHome : ""); elide: Text.ElideLeft; ToolTipArea { text: parent.text } }
-                  CountCol { x: prow.contentWidth - 80 - 8 - 96; anchors.verticalCenter: parent.verticalCenter; count: modelData.items.length }
-                  SizeCol { x: prow.contentWidth - 80; anchors.verticalCenter: parent.verticalCenter; bytes: modelData.bytes }
-                }
-                ItemList { visible: grp.open; items: grp.open ? modelData.items : []; indent: 56; owner: cl }
-              }
-            }
-          }
-          ItemList { visible: block.open && !block.cat.byProject; items: block.open && !block.cat.byProject ? modelData.items : []; indent: 28; owner: cl }
-        }
-      }
-    }
-  }
-
-  // MARK: 4 Switch's own cache (Codex)
-
-  MaintCard {
-    visible: !!cl.scan && cl.isCodex && (cl.samples.length > 0 || cl.cacheSizes.conversationBytes > 0)
-    title: "Switch's own cache"
-    enabled: !cl.busy
-    accessory: Txt { role: "secondary"; color: Theme.secondary; tabular: true; text: F.size(cl.cacheSizes.usageBytes + cl.cacheSizes.conversationBytes) }
-    MaintRow {
-      MaintCheck {
-        readonly property int n: cl.view ? cl.view.samples.length : 0
-        text: "Usage readings · " + F.num(n) + " in this range"
-        enabled: n > 0
-        value: cl.useSamples && n > 0 ? 2 : 0
-        onClicked: { cl.useSamples = !cl.useSamples; cl.review = null }
-      }
-    }
-    MaintRow {
-      MaintCheck {
-        text: "Conversation index · " + F.size(cl.cacheSizes.conversationBytes)
-        enabled: cl.range === "All time" && cl.cacheSizes.conversationBytes > 0
-        value: cl.clearIndex ? 2 : 0
-        onClicked: cl.clearIndex = !cl.clearIndex
-        ToolTipArea { text: "Choose All time to clear the search index. It rebuilds when Chat History opens." }
-      }
-    }
-    MaintRow { Txt { role: "secondary"; color: Theme.secondary; text: "These caches rebuild when needed. Daily activity totals stay saved." } }
-  }
-
-  // MARK: 5 selection
+  // MARK: 7 selection split by tier
 
   MaintCard {
     visible: !!cl.source && !!cl.scan
@@ -629,133 +828,81 @@ Column {
         height: 28
         Row {
           anchors.verticalCenter: parent.verticalCenter
-          spacing: 8
-          Txt { text: cl.hasSelection ? F.num(cl.picked.items.length) + " items selected" : "Nothing selected" }
-          RollText { role: "secondary"; color: Theme.secondary; text: F.size(cl.picked.bytes); anchors.verticalCenter: parent.verticalCenter }
+          spacing: 16
+          Txt { anchors.verticalCenter: parent.verticalCenter; text: cl.hasSelection ? F.num(cl.picked.items.length) + " items selected" : "Nothing selected" }
+          Dot { anchors.verticalCenter: parent.verticalCenter; dot: Theme.green; text: F.size(cl.picked.safeBytes) + " safe" }
+          Dot { anchors.verticalCenter: parent.verticalCenter; dot: Theme.amber; text: F.size(cl.picked.workBytes) + " of your work" }
         }
         PushButton { anchors.right: parent.right; text: "Review"; prominent: true; enabled: !cl.busy && cl.hasSelection; onClicked: cl.makeReview() }
       }
     }
   }
 
-  // MARK: 6 review
+  // MARK: 8 the trash, the last and red group (CleanupPage.swift trashGroup)
 
   MaintCard {
-    id: reviewCard
-    visible: !!cl.review
-    title: "Review before cleanup"
-    readonly property var r: cl.review || { groups: [], samples: [], clearIndex: false, itemCount: 0, bytes: 0, plan: null }
-    Repeater {
-      model: reviewCard.r.groups
-      delegate: MaintRow {
-        Item { width: parent.width; height: 16
-          Txt { text: modelData.title }
-          CountCol { x: parent.width - 80 - 8 - 96; count: modelData.count }
-          SizeCol { x: parent.width - 80; bytes: modelData.bytes } }
-      }
-    }
-    MaintRow {
-      visible: reviewCard.r.samples.length > 0
-      Item { width: parent.width; height: 16
-        Txt { text: "Usage readings" }
-        CountCol { x: parent.width - 80 - 8 - 96; count: reviewCard.r.samples.length }
-        SizeCol { x: parent.width - 80; bytes: cl.sum(reviewCard.r.samples) } }
-    }
-    MaintRow {
-      visible: reviewCard.r.clearIndex
-      Item { width: parent.width; height: 16
-        Txt { text: "Conversation index" }
-        SizeCol { x: parent.width - 80; bytes: cl.cacheSizes.conversationBytes } }
-    }
-    MaintRow {
-      Item { width: parent.width; height: 16
-        Txt { text: "Total"; wght: 590 }
-        CountCol { x: parent.width - 80 - 8 - 96; count: reviewCard.r.itemCount }
-        SizeCol { x: parent.width - 80; bytes: reviewCard.r.bytes; wght: 590 } }
-    }
-    MaintRow {
-      visible: !!reviewCard.r.plan
-      Item {
-        width: parent.width
-        height: 16
-        Row {
-          id: linkRow
-          spacing: 6
-          Icon { name: "chevronRight"; size: 11; color: Theme.link; anchors.verticalCenter: parent.verticalCenter; rotation: cl.showReviewItems ? 90 : 0
-                 Behavior on rotation { NumberAnimation { duration: Theme.motion ? 250 : 0 } } }
-          Txt { color: Theme.link; text: cl.showReviewItems ? "Hide the exact items" : "Show the exact " + F.num(reviewCard.r.itemCount) + " items" }
-        }
-        Item {
-          width: linkRow.width; height: 16
-          activeFocusOnTab: true
-          Accessible.role: Accessible.Button
-          Accessible.name: linkRow.children[1].text
-          Keys.onSpacePressed: cl.showReviewItems = !cl.showReviewItems
-          Keys.onReturnPressed: cl.showReviewItems = !cl.showReviewItems
-          FocusFill { anchors.margins: -3; radius: 4 }
-          MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: cl.showReviewItems = !cl.showReviewItems }
-        }
-      }
-    }
-    MaintRow {
-      visible: !!reviewCard.r.plan && cl.showReviewItems
-      ListView {
-        id: planList
-        width: parent.width
-        height: reviewCard.r.plan ? Math.min(reviewCard.r.plan.items.length, 8) * 30 : 0
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        cacheBuffer: 1000000      // every row exists, so Tab walks the whole list and scrolls it
-        model: reviewCard.r.plan ? reviewCard.r.plan.items : []
-        delegate: Item {
-          width: planList.width
-          height: 30
-          MaintCopyPath { x: 4; anchors.verticalCenter: parent.verticalCenter; width: Math.min(implicitWidth, parent.width - 8 - 8 - sz.width); path: modelData.path; tip: modelData.title
-                          onActiveFocusChanged: if (activeFocus) planList.positionViewAtIndex(index, ListView.Contain) }
-          Txt { id: sz; anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter
-                role: "secondary"; color: Theme.secondary; tabular: true; text: F.size(modelData.bytes) }
-        }
-      }
-    }
-    MaintRow {
-      Txt { width: parent.width; role: "secondary"; color: Theme.secondary; wrapMode: Text.Wrap
-            text: cl.review ? F.reviewNote(cl.review, cl.toolTitle, cl.isCodex) : "" }
-    }
-    MaintRow {
-      Item {
-        width: parent.width
-        height: 28
-        PushButton { text: "Cancel"; onClicked: cl.review = null }
-        PushButton { anchors.right: parent.right; text: "Move to trash"; icon: "trash"; prominent: true; enabled: !cl.busy; onClicked: cl.confirmApply() }
-      }
-    }
-  }
-
-  // MARK: 7 recoverable trash
-
-  MaintCard {
+    id: trashCard
     visible: !!cl.scan && cl.trash.length > 0
-    title: "Recoverable trash"
-    accessory: Txt { role: "secondary"; color: Theme.secondary; text: F.plural(cl.trash.length, "batch", "batches") }
+    readonly property real bytes: cl.trash.reduce(function (s, b) { return s + (Number(b.bytes) || 0) }, 0)
+    Item {
+      width: parent.width
+      height: trashHead.height
+      // The tint stays inside the card's border and keeps only its top corners round.
+      Item {
+        x: Theme.hair; y: Theme.hair
+        width: parent.width - 2 * Theme.hair
+        height: parent.height - Theme.hair
+        clip: true
+        Rectangle { width: parent.width; height: parent.height + 12; radius: 10 - Theme.hair; color: Theme.rgba(Theme.red, 0.10) }
+      }
+      Item {
+        id: trashHead
+        width: parent.width
+        height: Math.max(headText.height, headSize.height) + 24
+        Accessible.role: Accessible.StaticText
+        Accessible.name: "In the trash, " + F.size(trashCard.bytes) + ", " + F.plural(cl.trash.length, "batch", "batches")
+        Icon { x: 16 + 2; anchors.verticalCenter: parent.verticalCenter; name: "trash"; size: 18; color: Theme.red }
+        Column {
+          id: headText
+          x: 16 + 22 + 12
+          width: parent.width - x - 12 - headSize.width - 16
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: 2
+          Txt { role: "section"; text: "In the trash" }
+          Txt { width: parent.width; role: "secondary"; color: Theme.secondary; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight
+                text: "Restore brings items back. Remove for good frees the space and cannot be undone." }
+        }
+        Column {
+          id: headSize
+          x: parent.width - 16 - width
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: 2
+          Txt { anchors.right: parent.right; role: "section"; tabular: true; text: F.size(trashCard.bytes) }
+          Txt { anchors.right: parent.right; role: "secondary"; color: Theme.secondary; tabular: true; text: F.plural(cl.trash.length, "batch", "batches") }
+        }
+      }
+    }
+    Hair { width: parent.width }
     Repeater {
       model: cl.trash
-      delegate: MaintRow {
-        Item {
-          width: parent.width
-          height: 32
-          Column {
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 2
-            Txt { text: F.num(modelData.items.length) + " items · " + F.size(modelData.bytes) }
-            Txt { role: "secondary"; color: Theme.secondary; tabular: true; text: F.dateTime(modelData.createdAt) }
-          }
-          Row {
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 16
-            PushButton { text: "Restore"; enabled: !cl.busy; onClicked: cl.restoreBatch(modelData) }
-            PushButton { text: "Remove for good"; enabled: !cl.busy; onClicked: cl.purgeBatch(modelData) }
-          }
+      delegate: Item {
+        width: parent ? parent.width : 0
+        height: (index > 0 ? Theme.hair : 0) + 24 + Math.max(batchText.height, 28)
+        Rectangle { visible: index > 0; x: 16; width: parent.width - 32; height: Theme.hair; color: Theme.tableSeparator }
+        Column {
+          id: batchText
+          x: 16
+          y: (index > 0 ? Theme.hair : 0) + (parent.height - (index > 0 ? Theme.hair : 0) - height) / 2
+          spacing: 2
+          Txt { text: F.plural(modelData.items.length, "item", "items") + " · " + F.size(modelData.bytes) }
+          Txt { role: "secondary"; color: Theme.secondary; tabular: true; text: "Moved " + F.dateTime(modelData.createdAt) }
+        }
+        Row {
+          x: parent.width - 16 - width
+          y: batchText.y + (batchText.height - height) / 2
+          spacing: 16
+          PushButton { text: "Restore"; icon: "refresh"; enabled: !cl.busy; onClicked: cl.restoreBatch(modelData) }
+          PushButton { text: "Remove for good"; icon: "trash"; textColor: Theme.red; enabled: !cl.busy; onClicked: cl.purgeBatch(modelData) }
         }
       }
     }
