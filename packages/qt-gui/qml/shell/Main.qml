@@ -24,8 +24,9 @@ Window {
       { title: "Overview", route: "Overview", icon: "house" },
       { title: "Accounts", route: "Accounts", icon: "people" },
       { title: "Settings", route: "Settings", icon: "gearFill" },
-      { title: "Maintenance", route: "Maintenance", icon: "tools" },
-      { title: "History", route: "Conversations", icon: "history" }
+      // Saved routes stay stable (lastPage); only the Maintenance title changed, to Utilities.
+      { title: "History", route: "Conversations", icon: "history" },
+      { title: "Utilities", route: "Maintenance", icon: "tools" }
     ]
     if (App.flag("gallery")) p.push({ title: "Gallery", route: "Gallery", icon: "gear" })
     return p
