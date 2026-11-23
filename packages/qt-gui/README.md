@@ -31,7 +31,7 @@ From the Mac, `scripts/remote.zsh [build|shots|all]` syncs this folder to the bu
 |---|---|
 | `--demo` | Feed every model from `assets/demo.json` instead of the helper |
 | `--theme light\|dark\|system` | Override the system appearance (captures) |
-| `--page <title>` | Open on a page (Overview, Accounts, Settings, Maintenance, History) |
+| `--page <title>` | Open on a page (Overview, Accounts, Settings, History, Utilities; the old route Maintenance also works) |
 | `--gallery` | Add the developer component gallery to the sidebar |
 | `--no-motion` | Turn every animation off (captures) |
 | `--content-only` | No window buttons, outline or corners, like a Mac content-view capture |

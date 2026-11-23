@@ -216,7 +216,7 @@ Item {
       height: 28
       Segmented {
         id: tabs
-        name: "Maintenance section"
+        name: "Utilities section"
         model: ["Cleanup", "Backup"]
         icons: ["eraser", "archivebox"]
         segmentWidth: 120
