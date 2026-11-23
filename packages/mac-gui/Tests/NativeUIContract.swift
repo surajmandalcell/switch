@@ -1475,6 +1475,46 @@ enum AIManagerNativeContract {
       failures.append("Chat message filter persistence test store is unavailable")
     }
 
+    // History list filter: matching, toggling, and persistence across launches.
+    let historySuite = "Switch.HistoryFilterContract.\(UUID().uuidString)"
+    if let defaults = UserDefaults(suiteName: historySuite) {
+      defer { defaults.removePersistentDomain(forName: historySuite) }
+      let present: Set<ChatThreadSource> = [.cli, .app, .vscode]
+      if !HistoryThreadFilter.load(from: defaults).isEmpty {
+        failures.append("A fresh History filter does not start at All")
+      }
+      HistoryThreadFilter.save([.cli, .vscode], to: defaults)
+      if HistoryThreadFilter.load(from: defaults) != [.cli, .vscode] {
+        failures.append("The History filter does not persist its selection")
+      }
+      defaults.set(["cli", "retired-app"], forKey: HistoryThreadFilter.defaultsKey)
+      if HistoryThreadFilter.load(from: defaults) != [.cli] {
+        failures.append("The History filter keeps unknown saved apps")
+      }
+      let thread = { (source: ChatThreadSource) in
+        ChatThreadSummary(id: source.rawValue, threadID: source.rawValue, title: "t", preview: "", workingDirectory: nil,
+          updatedAt: Date(timeIntervalSince1970: 0), archived: false, messageCount: 0, fileByteCount: 0,
+          source: URL(fileURLWithPath: "/synthetic/session.jsonl"), unreadableRecordCount: 0, appSource: source)
+      }
+      if !HistoryThreadFilter.matches(thread(.exec), []) || !HistoryThreadFilter.matches(thread(.cli), [.cli])
+        || HistoryThreadFilter.matches(thread(.app), [.cli]) {
+        failures.append("The History filter shows the wrong conversations")
+      }
+      let cases: [(Set<ChatThreadSource>, Set<ChatThreadSource>, Set<ChatThreadSource>, String)] = [
+        ([.cli], [], [.app, .vscode], "unchecking one app from All"),
+        ([.cli], [.app, .vscode], [], "checking the last app back"),
+        ([.cli], [.cli], [.cli], "unchecking the only app left"),
+        (present, [], [], "unchecking the whole provider from All"),
+        (present, [.cli], [], "checking the whole provider"),
+      ]
+      for (toggle, selection, expected, name) in cases
+        where HistoryThreadFilter.toggling(toggle, in: selection, present: present) != expected {
+        failures.append("The History filter breaks when \(name)")
+      }
+    } else {
+      failures.append("History filter persistence test store is unavailable")
+    }
+
     let roles: [ChatMessageRole] = [.user, .assistant, .tool, .other]
     if roles.map(\.displayName) != ["Prompt", "Response", "Tool", "Other"] {
       failures.append("Chat message category labels are unstable")
@@ -2478,13 +2518,29 @@ enum AIManagerNativeContract {
     let menu = NSHostingMenu(rootView: ChatFilteredCopyButton(
       messages: messages.filter { ChatMessageFilter.prompts.includes($0.role) }))
     menu.update()
-    let index = menu.indexOfItem(withTitle: "Copy")
+    // The control is icon-only, so its menu item has no title; it is the menu's one item.
+    let index = menu.numberOfItems == 1 ? 0 : menu.indexOfItem(withTitle: "Copy conversation")
     guard index >= 0, menu.item(at: index)?.isEnabled == true else {
       return ["The actual History Copy control is missing or disabled"]
     }
     menu.performActionForItem(at: index)
     guard pasteboard.string(forType: .string) == "[Prompt | Unknown time]\n# Goal\n\nKeep **raw Markdown**." else {
       return ["The History Copy control did not copy only the visible raw messages"]
+    }
+    // The right-click menu of a conversation copies each part on its own.
+    let thread = ChatThreadSummary(
+      id: "copy-row", threadID: "019f-copy", title: "A long synthetic title", preview: "",
+      workingDirectory: "/synthetic/project", updatedAt: Date(timeIntervalSince1970: 0), archived: false,
+      messageCount: 0, fileByteCount: 0, source: URL(fileURLWithPath: "/synthetic/session.jsonl"),
+      unreadableRecordCount: 0, model: "gpt-synthetic")
+    let rowMenu = NSHostingMenu(rootView: ChatThreadCopyItems(thread: thread))
+    rowMenu.update()
+    for (title, text) in [("Copy Title", thread.title), ("Copy Path", "/synthetic/project"),
+                          ("Copy Thread ID", "019f-copy"), ("Copy Model", "gpt-synthetic")] {
+      let item = rowMenu.indexOfItem(withTitle: title)
+      guard item >= 0 else { return ["The History row menu has no \(title) item"] }
+      rowMenu.performActionForItem(at: item)
+      if pasteboard.string(forType: .string) != text { return ["History \(title) copied the wrong text"] }
     }
     if NSApp.isActive || NSWorkspace.shared.frontmostApplication?.processIdentifier != foreground {
       return ["The private History copy check changed focus"]

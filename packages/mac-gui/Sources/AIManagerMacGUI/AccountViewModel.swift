@@ -3053,19 +3053,20 @@ enum DemoData {
     static let chatThreads = [
         chatThread(
             id: "demo-chat-accounts", threadID: "019f4b6d-accounts",
-            title: "Polish the account import flow",
+            title: "Polish the account import flow so long source paths and workspace names never push the row past the card edge",
             preview: "The source rows now stay aligned and the review step is ready.",
-            project: "/Projects/Switch", minutesAgo: 8, messages: 10, tokens: 15_200),
+            project: "/Projects/Switch", minutesAgo: 8, messages: 10, tokens: 15_200,
+            appSource: .app, model: "gpt-6.2-sol"),
         chatThread(
             id: "demo-chat-linux", threadID: "019f4b6d-linux",
             title: "Verify the Linux release matrix",
             preview: "Both ARM64 and AMD64 passed in clean read-only containers.",
-            project: "/Projects/Switch", minutesAgo: 74, messages: 3),
+            project: "/Projects/Switch", minutesAgo: 74, messages: 3, appSource: .cli, model: "gpt-6.2-sol"),
         chatThread(
             id: "demo-chat-icon", threadID: "019f4b6d-icon",
             title: "Trace the final Switch icon",
             preview: "The approved pixel trace is packaged for light and dark appearances.",
-            project: "/Projects/Switch", minutesAgo: 1_460, messages: 4, archived: true),
+            project: "/Projects/Switch", minutesAgo: 1_460, messages: 4, archived: true, appSource: .vscode),
     ]
 
     static let stressChatThreads: [ChatThreadSummary] = chatThreads + (chatThreads.count..<1_717).map {
@@ -3401,7 +3402,9 @@ enum DemoData {
         minutesAgo: Int,
         messages: Int,
         tokens: Int64? = nil,
-        archived: Bool = false
+        archived: Bool = false,
+        appSource: ChatThreadSource = .codex,
+        model: String? = nil
     ) -> ChatThreadSummary {
         ChatThreadSummary(
             id: id,
@@ -3415,7 +3418,9 @@ enum DemoData {
             fileByteCount: Int64(messages * 2_048),
             source: paths.sharedRoot.appending(path: "sessions/\(id).jsonl"),
             unreadableRecordCount: 0,
-            totalTokens: tokens)
+            totalTokens: tokens,
+            appSource: appSource,
+            model: model)
     }
 }
 #endif

@@ -1451,6 +1451,10 @@ private final class AcceptanceReceipts {
             sheet.layoutSubtreeIfNeeded()
             writeSnapshot(of: sheet, filename: "sheet.png")
         }
+        // An open popover (such as the History filter) is its own window.
+        if let popover = NSApp.windows.first(where: { "\(type(of: $0))".contains("Popover") && $0.isVisible })?.contentView {
+            writeSnapshot(of: popover, filename: "popover.png")
+        }
         guard let directory else { return }
         let hierarchy = AIManagerNativeContract.hierarchySnapshot(in: view)
         let encoder = JSONEncoder()
@@ -1651,6 +1655,20 @@ enum SearchPreviewDriver {
 
     /// Also runs in the offscreen contract run, before its window.png is written.
     static func run(window: NSWindow) async {
+        // `--right-click-at=x,y` opens that point's context menu for a screenshot; the menu blocks until closed.
+        if let raw = PreviewArguments.value("right-click-at"), let view = window.contentView {
+            let parts = raw.split(separator: ",").compactMap { Double($0) }
+            if parts.count == 2 {
+                if !window.isVisible { window.alphaValue = 0; window.orderFrontRegardless() }
+                let point = NSPoint(x: parts[0], y: view.bounds.height - parts[1])
+                if let event = NSEvent.mouseEvent(
+                    with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    print("RIGHT_CLICK_SENT")
+                    window.sendEvent(event)
+                }
+            }
+        }
         guard CommandLine.arguments.contains(where: { $0.hasPrefix("--type-search=") }) else { return }
         do {
             NotificationCenter.default.post(name: AIManagerNavigation.focusSearch, object: nil)
