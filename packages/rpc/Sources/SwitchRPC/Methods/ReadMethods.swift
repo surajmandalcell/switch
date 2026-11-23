@@ -9,7 +9,7 @@ extension RPCServer {
         "claude.shellIntegration.get", "droid.missions", "history.list", "history.detail", "history.export",
         "cleanup.sources", "cleanup.trashList", "cleanup.samples", "backup.list", "backup.history",
         "usage.projectActivity", "runningCLIs.list", "usage.history", "usage.day", "autoSwitch.preview",
-        "app.searchIndex", "tray.rows", "usage.cacheSizes", "providers.liveIdentity",
+        "app.searchIndex", "tray.rows", "tray.bars.get", "usage.cacheSizes", "providers.liveIdentity",
     ]
 
     /// Nil when `method` is not a read method.
@@ -26,6 +26,9 @@ extension RPCServer {
         case "tray.rows":
             // The `tray` topic value with reset texts computed now (the popover's 60 s countdown tick).
             return await engine.trayValue()
+        case "tray.bars.get":
+            let id = try params(ProviderOnlyParams.self, method: method, frame: frame).providerID
+            return try await engine.trayBars(providerID: ProviderID(rawValue: id))
         case "app.searchIndex":
             // Every Settings row in page order, or the rows that match `query`, best first (the Mac toolbar search).
             return SettingsSearch.search((try? params(QueryParams.self, method: method, frame: frame))?.query ?? "")
@@ -47,12 +50,19 @@ extension RPCServer {
             return try await requireManager().droidMissions().map(WireMission.init)
         case "usage.cacheSizes": return await engine.cacheSizes()
         case "history.list":
-            let params = (try? params(HistoryListParams.self, method: method, frame: frame)) ?? .init()
+            let params = try params(HistoryListParams.self, method: method, frame: frame, default: .init())
             let limit = params.limit ?? 100
             guard (1...1_000).contains(limit) else { throw RPCError(-32602, "invalidParams", "limit must be 1 to 1000.") }
-            let snapshot = try await chatIndex().refresh(query: params.query ?? "", limit: limit)
+            let apps = try Set((params.apps ?? []).map { value in
+                guard let source = ChatThreadSource(rawValue: value) else {
+                    throw RPCError(-32602, "invalidParams", "apps must contain known appSource values.")
+                }
+                return source
+            })
+            let (snapshot, appCounts) = try await engine.conversationHistory(query: params.query ?? "", limit: limit,
+                                                                             sources: apps)
             // The client's last revision still holds: answer without the threads.
-            return WireThreadList(snapshot, unchanged: params.libraryRevision == snapshot.libraryRevision)
+            return WireThreadList(snapshot, appCounts: appCounts, unchanged: params.libraryRevision == snapshot.libraryRevision)
         case "history.detail":
             let params = try params(HistoryDetailParams.self, method: method, frame: frame)
             let limit = params.limit ?? 100
@@ -96,14 +106,14 @@ extension RPCServer {
             let claudeConfig = paths.userHome.appending(path: ".claude", directoryHint: .isDirectory)
             return RunningCLIs.find(claudeDefaultConfig: claudeConfig).map(WireRunningCLI.init)
         case "usage.history":
-            let params = (try? params(UsageHistoryParams.self, method: method, frame: frame)) ?? .init()
+            let params = try params(UsageHistoryParams.self, method: method, frame: frame, default: .init())
             guard let period = UsagePeriod(rawValue: params.period ?? "week"),
                   let grouping = UsageGrouping(rawValue: params.grouping ?? "account") else {
-                throw RPCError(-32602, "invalidParams", "period must be week, month, or year; grouping account, model, or project.")
+                throw RPCError(-32602, "invalidParams", "period must be today, week, month, or year; grouping account, model, or project.")
             }
-            let snapshot = try await engine.usageHistory()
-            return WireUsageHistory(snapshot, summary: snapshot.summary(period: period, grouping: grouping),
-                                    points: params.points ?? true)
+            let (snapshot, summary, unavailable) = try await engine.overviewHistory(period: period, grouping: grouping)
+            return WireUsageHistory(today: snapshot.today, unavailableSources: unavailable,
+                                    points: params.points == false ? nil : snapshot.points, summary: summary)
         case "usage.day":
             let day = try params(DayParams.self, method: method, frame: frame).day
             let parts = day.split(separator: "-", omittingEmptySubsequences: false)
@@ -145,13 +155,7 @@ extension RPCServer {
         guard let filter = mask.map(ChatMessageFilter.init(rawValue:)) ?? roles[role ?? "all"] else {
             throw RPCError(-32602, "invalidParams", "role must be all, prompts, responses, tools, or other.")
         }
-        let index = chatIndex()
-        _ = try await index.refresh(limit: 1)
-        guard let detail = try await index.detail(for: id, offset: max(0, offset), limit: limit, query: query,
-                                                  filter: filter) else {
-            throw RPCError(-32003, "notFound", "No conversation has that ID.")
-        }
-        return detail
+        return try await engine.conversationDetail(id: id, offset: max(0, offset), limit: limit, query: query, filter: filter)
     }
 
     private func cleanupSources() async throws -> [CleanupSource] {
@@ -172,7 +176,8 @@ private struct ProviderOnlyParams: Decodable { let providerID: String }
 private struct HistoryListParams: Decodable {
     var query: String? = nil
     var limit: Int? = nil
-    /// The `libraryRevision` of the client's last reply for the same query and limit.
+    var apps: [String]? = nil
+    /// The `libraryRevision` of the client's last reply for the same query, apps, and limit.
     var libraryRevision: UInt64? = nil
 }
 private struct HistoryDetailParams: Decodable {
