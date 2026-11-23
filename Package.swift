@@ -107,6 +107,13 @@ var targets: [Target] = [
     sqliteTarget,
 ]
 
+var dependencies: [Package.Dependency] = [
+    .package(
+        url: "https://github.com/apple/swift-crypto.git",
+        exact: "3.15.1"
+    ),
+]
+
 #if os(macOS)
 products.append(
     .executable(
@@ -114,10 +121,23 @@ products.append(
         targets: ["AIManagerMacGUI"]
     )
 )
+// The crash prompt: after a crash, the next launch asks before it sends a report.
+dependencies.append(
+    .package(
+        url: "https://github.com/samhqapp/indiecrumb-swift",
+        .upToNextMinor(from: "0.2.1")
+    )
+)
 targets.append(
     .executableTarget(
         name: "AIManagerMacGUI",
-        dependencies: ["AIManagerCore", "SwitchAppModel"],
+        dependencies: [
+            "AIManagerCore",
+            "SwitchAppModel",
+            .product(name: "IndieCrumbCore", package: "indiecrumb-swift"),
+            .product(name: "IndieCrumbCrash", package: "indiecrumb-swift"),
+            .product(name: "IndieCrumbCrashUI", package: "indiecrumb-swift"),
+        ],
         path: "packages/mac-gui/Sources/AIManagerMacGUI"
     )
 )
@@ -129,11 +149,6 @@ let package = Package(
         .macOS(.v14)
     ],
     products: products,
-    dependencies: [
-        .package(
-            url: "https://github.com/apple/swift-crypto.git",
-            exact: "3.15.1"
-        ),
-    ],
+    dependencies: dependencies,
     targets: targets
 )
