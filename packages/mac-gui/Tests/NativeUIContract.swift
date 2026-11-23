@@ -3173,6 +3173,17 @@ enum AIManagerNativeContract {
         expect(data.heatLevel(0) == 0 && data.heatLevel(Int64.max) == 4, "The heatmap levels are wrong")
       }
     }
+    for grouping in UsageGrouping.allCases {
+      let summary = snapshot.summary(period: .today, grouping: grouping, now: DemoData.now)
+      let data = OverviewDataset.make(summary: summary, year: year, accounts: accounts, hideEmails: false)
+      let started = summary.startedHours ?? 0
+      expect(data.hourly && (23...25).contains(data.days.count) && started > 1 && !data.series.isEmpty
+        && data.series.allSatisfy { $0.daily.count == started } && data.streamSummary.hasPrefix("Today, ")
+        && data.ridgeSummary.hasPrefix("Hourly usage"),
+        "The Overview today by \(grouping.rawValue) is not hourly up to now")
+    }
+    let hourAxis = OverviewDateAxis.labels(snapshot.summary(period: .today, grouping: .model, now: DemoData.now).days)
+    expect(hourAxis.count == 5 && hourAxis.first?.fraction == 0, "The Today axis is not every 6 hours")
     let demoServices = Set(snapshot.summary(period: .month, grouping: .account).groups.flatMap(\.services))
     expect(["codex", "claude-code", "droid"].allSatisfy(demoServices.contains),
       "The Overview demo by account lacks Codex, Claude Code, or Droid")

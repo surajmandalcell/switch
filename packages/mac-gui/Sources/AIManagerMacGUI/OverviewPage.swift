@@ -91,7 +91,9 @@ struct OverviewDataset: Equatable {
 
   let period: UsagePeriod
   let grouping: UsageGrouping
+  /// UTC days, or for Today the start of each local hour (ISO 8601).
   let days: [String]
+  /// Series run only over the hours that have begun; the rest of `days` is still to come.
   let series: [OverviewSeries]
   let totals: UsageTotals
   let yearDays: [String]
@@ -102,6 +104,12 @@ struct OverviewDataset: Equatable {
   let heatCuts: [Int64]
 
   var yearTokens: Int64 { yearTotals.reduce(0, +) }
+  var hourly: Bool { period == .today }
+
+  /// A tooltip or axis title for one bucket: "3 PM" for Today, else "Nov 23".
+  func bucketTitle(_ index: Int) -> String {
+    hourly ? OverviewHour.label(days[index]) : OverviewDay.short(days[index])
+  }
   /// The weekday column of the first heatmap day.
   var yearOffset: Int { yearDays.first.map(OverviewDay.weekday) ?? 0 }
   /// A new run of every draw-in starts when this changes, not when numbers refresh.
@@ -125,6 +133,9 @@ struct OverviewDataset: Equatable {
   ) -> OverviewDataset {
     let named = Dictionary(accounts.map { ($0.id.uuidString.lowercased(), $0) }, uniquingKeysWith: { first, _ in first })
     let live = summary.groups.filter { $0.tokens > 0 }
+    // Today: the hours still to come are left off, so the charts end at now instead of dropping to zero.
+    let span = summary.startedHours ?? summary.days.count
+    func cut(_ daily: [Int64]) -> [Int64] { Array(daily.prefix(span)) }
     var ranks: [String: Int] = [:]
     var taken = Set<Int>()
     var series: [OverviewSeries] = live.prefix(maxSeries).map { group in
@@ -137,17 +148,17 @@ struct OverviewDataset: Equatable {
         let label = shared ?? named[group.key]?.identity.accountLabel ?? "Removed account"
         return OverviewSeries(
           id: group.key, label: hideEmails && shared == nil && !EmailPrivacy.isPrivacyMode() ? EmailPrivacy.mask(label) : label,
-          color: OverviewPalette.account(service: service, rank: rank), tokens: group.tokens, daily: group.daily,
+          color: OverviewPalette.account(service: service, rank: rank), tokens: group.tokens, daily: cut(group.daily),
           service: service.isEmpty ? nil : service)
       case .model, .project:
         return OverviewSeries(
           id: group.key, label: group.label, color: OverviewPalette.color(group.key, taken: &taken),
-          tokens: group.tokens, daily: group.daily)
+          tokens: group.tokens, daily: cut(group.daily))
       }
     }
     let rest = live.dropFirst(maxSeries)
     if !rest.isEmpty {
-      let daily = summary.days.indices.map { index in rest.reduce(Int64(0)) { $0 + $1.daily[index] } }
+      let daily = (0..<min(span, summary.days.count)).map { index in rest.reduce(Int64(0)) { $0 + $1.daily[index] } }
       series.append(OverviewSeries(
         id: "other", label: "Other", color: OverviewPalette.other,
         tokens: rest.reduce(0) { $0 + $1.tokens }, daily: daily))
@@ -168,7 +179,7 @@ struct OverviewDataset: Equatable {
 
   // MARK: VoiceOver summaries
 
-  private var periodName: String { "Last \(days.count) days" }
+  private var periodName: String { hourly ? "Today" : "Last \(days.count) days" }
   private var noun: String {
     switch grouping {
     case .account: "account"
@@ -180,7 +191,7 @@ struct OverviewDataset: Equatable {
   private func tokenText(_ tokens: Int64) -> String { "\(UsagePresentation.formatTokens(tokens)) tokens" }
 
   var streamSummary: String {
-    let busiest = totals.busiestDay.map { ", most on \(OverviewDay.short($0))" } ?? ""
+    let busiest = totals.busiestDay.map { hourly ? ", most at \(OverviewHour.label($0))" : ", most on \(OverviewDay.short($0))" } ?? ""
     return "\(periodName), \(tokenText(totals.tokens)) by \(noun)\(busiest)"
   }
 
@@ -191,7 +202,7 @@ struct OverviewDataset: Equatable {
   }
 
   var ridgeSummary: String {
-    "Daily usage by \(noun). " + series.prefix(3).map { "\($0.label), \(tokenText($0.tokens))" }.joined(separator: ". ")
+    "\(hourly ? "Hourly" : "Daily") usage by \(noun). " + series.prefix(3).map { "\($0.label), \(tokenText($0.tokens))" }.joined(separator: ". ")
   }
 
   var waffleSummary: String {
@@ -205,7 +216,25 @@ struct OverviewDataset: Equatable {
     if grouping == .account, series.isEmpty, totals.tokens > 0 {
       return "By account needs history that belongs to one account. Claude Code profiles that share history show under Models and Projects."
     }
-    return "No usage in the \(periodName.lowercased()). Use Codex, Claude Code, or Grok Build and it shows here."
+    return "No usage \(hourly ? "today" : "in the \(periodName.lowercased())"). Use Codex, Claude Code, or Grok Build and it shows here."
+  }
+}
+
+/// Labels for Today's hour buckets, which `UsageSummary.days` names by their ISO 8601 start.
+enum OverviewHour {
+  /// The sources the hourly charts leave out, because they keep daily numbers only.
+  static let missingNote = "Codex account totals, Droid, and provider charts keep only daily numbers, so they are not in the hourly charts."
+
+  static func date(_ iso: String) -> Date? { ISO8601DateFormatter().date(from: iso) }
+
+  /// "3 PM" (or "15" in a 24-hour locale) in the current time zone.
+  static func label(_ iso: String) -> String {
+    date(iso)?.formatted(.dateTime.hour()) ?? iso
+  }
+
+  /// The local hour of day, 0 to 23.
+  static func hour(_ iso: String) -> Int? {
+    date(iso).map { Calendar.current.component(.hour, from: $0) }
   }
 }
 
@@ -273,7 +302,8 @@ struct OverviewPage: View {
         OverviewEmptyCard(model: model)
       } else {
         totalsCard
-        chartCard("Tokens per day", height: 200 + OverviewDateAxis.height + 4, bleed: true, hasData: { !$0.series.isEmpty }, footer: true) {
+        chartCard(period == .today ? "Tokens per hour" : "Tokens per day", height: 200 + OverviewDateAxis.height + 4,
+          bleed: true, hasData: { !$0.series.isEmpty }, footer: true) {
           OverviewStreamChart(dataset: $0)
         }
         chartCard("Activity", note: "(last 12 months, all accounts)", height: nil, hasData: { $0.yearTokens > 0 },
@@ -320,8 +350,14 @@ struct OverviewPage: View {
   private func rebuild() async {
     guard let snapshot = model.usageHistory else { return }
     let (period, grouping, accounts, hideEmails) = (period, grouping, accounts, hideEmails)
+    // Demo data is built around a fixed clock; Today must read that clock's day, not the real one.
+    #if AI_MANAGER_PREVIEW
+    let now = model.isDemo ? DemoData.now : Date()
+    #else
+    let now = Date()
+    #endif
     let (summary, year) = await Task.detached(priority: .userInitiated) {
-      (snapshot.summary(period: period, grouping: grouping), snapshot.summary(period: .year, grouping: .model))
+      (snapshot.summary(period: period, grouping: grouping, now: now), snapshot.summary(period: .year, grouping: .model))
     }.value
     guard !Task.isCancelled else { return }
     let built = OverviewDataset.make(summary: summary, year: year, accounts: accounts, hideEmails: hideEmails)
@@ -331,7 +367,13 @@ struct OverviewPage: View {
 
   // MARK: Cards
 
-  private var periodNote: String { period == .week ? "(last 7 days)" : "(last 30 days)" }
+  private var periodNote: String {
+    switch period {
+    case .today: "(today)"
+    case .week: "(last 7 days)"
+    default: "(last 30 days)"
+    }
+  }
 
   private var totalsCard: some View {
     AIMCard(
@@ -339,8 +381,14 @@ struct OverviewPage: View {
       accessory: {
         HStack(spacing: AIMTheme.rowSpacing) {
           AIMSegmentedPicker(
-            options: [UsagePeriod.week, .month], selection: $period, accessibilityLabel: "Period"
-          ) { $0 == .week ? "Week" : "Month" }
+            options: [UsagePeriod.today, .week, .month], selection: $period, accessibilityLabel: "Period"
+          ) {
+            switch $0 {
+            case .today: "Today"
+            case .week: "Week"
+            default: "Month"
+            }
+          }
           AIMSegmentedPicker(
             options: UsageGrouping.allCases, selection: $grouping, accessibilityLabel: "Group by"
           ) {
@@ -356,12 +404,13 @@ struct OverviewPage: View {
       let totals = displayedDataset?.totals
       HStack(alignment: .top, spacing: AIMTheme.tileGap) {
         StatTile(label: "Tokens", value: totals.map { UsagePresentation.formatTokens($0.tokens) },
-          detail: "In the last \(period.days) days", loading: displayedDataset == nil)
+          detail: period == .today ? "Today so far" : "In the last \(period.days) days", loading: displayedDataset == nil)
         StatTile(label: "Estimated cost", value: totals?.costUSD.map(UsagePresentation.formatCurrency),
           detail: "API-rate estimate, not billed", loading: displayedDataset == nil)
         StatTile(label: "Active accounts", value: totals.map { "\($0.activeAccounts)" },
-          detail: "With usage in this period", loading: displayedDataset == nil)
-        StatTile(label: "Busiest day", value: totals?.busiestDay.map(OverviewDay.short),
+          detail: period == .today ? "With usage today" : "With usage in this period", loading: displayedDataset == nil)
+        StatTile(label: period == .today ? "Busiest hour" : "Busiest day",
+          value: totals?.busiestDay.map(displayedDataset?.hourly == true ? OverviewHour.label : OverviewDay.short),
           detail: totals.map { $0.busiestDay == nil ? "No usage yet" : "\(UsagePresentation.formatTokens($0.busiestDayTokens)) tokens" },
           loading: displayedDataset == nil)
       }
@@ -388,6 +437,12 @@ struct OverviewPage: View {
         if footer {
           if let dataset { OverviewLegend(series: dataset.series).padding(.horizontal, AIMTheme.cardInset) }
           else { AIMSkeleton().frame(width: 180, height: OverviewLegend.height).padding(.horizontal, AIMTheme.cardInset) }
+          if period == .today {
+            Text("Codex account totals, Droid, and provider charts have no hourly data.")
+              .aimText(.caption, tint: Color(nsColor: .secondaryLabelColor)).lineLimit(1)
+              .help(OverviewHour.missingNote)
+              .padding(.horizontal, AIMTheme.cardInset)
+          }
         }
       }
       // Canvas charts hold no text, so the block itself marks the card's content edge for the inset check.
