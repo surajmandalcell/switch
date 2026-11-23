@@ -483,7 +483,7 @@ struct UsageBar: View {
 
 // MARK: - Badge
 
-/// The one badge (owner pick B3): a grey chip with label-color text and a 6 pt dot in the state
+/// The one badge: a grey chip with label-color text and a 6 pt dot in the state
 /// color. The text is never tinted, so it keeps 4.5:1 in both appearances. Used for Signed in on
 /// this Mac and every attention state.
 struct Badge: View {
