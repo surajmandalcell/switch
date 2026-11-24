@@ -11,6 +11,7 @@ import Glibc
 public enum ProviderAvailability: String, Codable, Sendable {
     case enabled
     case disabled
+    case unavailable
 }
 
 public struct ProviderDescriptor: Codable, Sendable, Identifiable {

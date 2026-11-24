@@ -29,6 +29,7 @@ struct ProviderAccountStore {
     private let paths: ManagerPaths
     private let fileManager: FileManager
     private let environment: [String: String]
+    private let os: ProviderOS
     private let specs: [ProviderSpec]
     private let lock: OperationLock
     private let encoder: JSONEncoder
@@ -36,10 +37,11 @@ struct ProviderAccountStore {
 
     init(paths: ManagerPaths, fileManager: FileManager = .default,
          environment: [String: String] = ProcessInfo.processInfo.environment,
-         specs: [ProviderSpec] = ProviderCatalog.all) throws {
+         specs: [ProviderSpec] = ProviderCatalog.all, os: ProviderOS = .current) throws {
         self.paths = paths
         self.fileManager = fileManager
         self.environment = environment
+        self.os = os
         self.specs = specs
         self.lock = try OperationLock(
             at: paths.applicationSupport.appending(path: "provider-accounts/accounts.lock"),
@@ -331,6 +333,7 @@ struct ProviderAccountStore {
     /// Prepares a private temp home and the command to run. The GUI opens it in Terminal.
     func startLogin(_ providerID: ProviderID, accountID: UUID? = nil) throws -> AccountLoginStart {
         guard let spec = spec(providerID), spec.style == .files,
+              spec.supportedOS.contains(os),
               let login = spec.login, let command = login.first else {
             throw AIManagerError.unsupportedSource("Provider \(providerID.rawValue) has no sign-in command.")
         }
@@ -340,10 +343,14 @@ struct ProviderAccountStore {
         try pruneStaleLogins()
         let session = AccountLoginSession(id: UUID(), providerID: providerID, createdAt: Date(), accountID: accountID)
         let home = loginHome(session.id)
-        var launchEnvironment = environment
-        launchEnvironment["HOME"] = home.path
+        let stagedEnvironment = ProviderPaths(home: home, env: environment.merging(spec.loginEnv) { _, new in new }, os: os)
+        var launch = ProviderPaths(home: home, env: stagedEnvironment.stagedEnvironment(), os: os)
         try lock.withLock {
             try CoreSupport.privateDirectory(home, fileManager: fileManager)
+            if os == .Windows {
+                try CoreSupport.privateDirectory(launch.roaming, fileManager: fileManager)
+                try CoreSupport.privateDirectory(launch.local, fileManager: fileManager)
+            }
             for file in spec.files {
                 guard let name = file.homeEnv else { continue }
                 guard CoreSupport.safeRelativePath(file.path) else { throw AIManagerError.unsafePath(file.path) }
@@ -358,17 +365,21 @@ struct ProviderAccountStore {
                 } else {
                     parent = (file.path as NSString).deletingLastPathComponent
                 }
-                let directory = parent.isEmpty ? home : home.appending(path: parent, directoryHint: .isDirectory)
+                let directory: URL
+                if file.root == .gcloud {
+                    directory = ProviderPaths(home: home, env: [:], os: os).root(.gcloud)
+                } else {
+                    directory = parent.isEmpty ? home : home.appending(path: parent, directoryHint: .isDirectory)
+                }
                 try CoreSupport.privateDirectory(directory, fileManager: fileManager)
-                launchEnvironment[name] = directory.path
+                launch.set(name, to: directory.path)
             }
             var index = try readIndex()
             index.pending.append(session)
             try writeIndex(index)
         }
-        launchEnvironment.merge(spec.loginEnv) { _, new in new }
         return .init(session: session, launchSpec: .init(
-            executable: executable, arguments: Array(login.dropFirst()), environment: launchEnvironment))
+            executable: executable, arguments: Array(login.dropFirst()), environment: launch.env))
     }
 
     func checkLogin(_ id: UUID) throws -> AccountLoginCheck {
@@ -609,17 +620,25 @@ struct ProviderAccountStore {
     /// `home` is a temp sign-in home that mirrors the user home layout; nil means the real one.
     private func liveURL(_ file: LiveFile, home: URL?) throws -> URL {
         guard CoreSupport.safeRelativePath(file.path) else { throw AIManagerError.unsafePath(file.path) }
-        if let home { return home.appending(path: file.path) }
-        if let name = file.homeEnv, let value = environment[name], !value.isEmpty {
-            let directory = URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true)
-            guard paths.isolationRoot.map({ CoreSupport.isContained(directory, by: $0) }) ?? true else {
-                throw AIManagerError.unsafePath(directory.path)
-            }
+        let resolver = ProviderPaths(home: home ?? paths.userHome, env: home == nil ? environment : [:], os: os)
+        let url: URL
+        if let root = file.root {
+            let subpath = file.rootSubpath ?? (file.path as NSString).lastPathComponent
+            guard CoreSupport.safeRelativePath(subpath) else { throw AIManagerError.unsafePath(subpath) }
+            url = resolver.root(root).appending(path: subpath)
+        } else if let name = file.homeEnv, let directory = resolver.override(name) {
             let subpath = file.homeEnvSubpath ?? (file.path as NSString).lastPathComponent
             guard CoreSupport.safeRelativePath(subpath) else { throw AIManagerError.unsafePath(subpath) }
-            return directory.appending(path: subpath)
+            url = directory.appending(path: subpath)
+        } else {
+            url = resolver.home.appending(path: file.path)
         }
-        return paths.userHome.appending(path: file.path)
+        guard paths.allowsRead(url) else { throw AIManagerError.unsafePath(url.path) }
+        return url
+    }
+
+    func credentialPaths(_ providerID: ProviderID) -> [String] {
+        spec(providerID)?.files.compactMap { try? liveURL($0, home: nil).path } ?? []
     }
 
     private func readLive(_ spec: ProviderSpec, home: URL?) throws -> ProviderCredential {
@@ -703,9 +722,10 @@ struct ProviderAccountStore {
 
     private func validateFileRemoval(_ url: URL, file: LiveFile, home: URL?) throws {
         var root = home ?? paths.userHome
-        if home == nil, let name = file.homeEnv, let value = environment[name], !value.isEmpty {
-            let configured = URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true)
-            if paths.isolationRoot.map({ CoreSupport.isContained(configured, by: $0) }) ?? true { root = configured }
+        if home == nil {
+            let resolver = ProviderPaths(home: paths.userHome, env: environment, os: os)
+            if let providerRoot = file.root { root = resolver.root(providerRoot) }
+            else if let name = file.homeEnv, let configured = resolver.override(name) { root = configured }
         }
         var info = stat()
         guard CoreSupport.isContained(url, by: root),
@@ -802,6 +822,9 @@ struct ProviderAccountStore {
     }
 
     private func writeRows(_ url: URL, file: LiveFile, data: Data) throws {
+        if os != .macOS, file.root == .cursor || file.root == .kiro {
+            throw AIManagerError.unsupportedSource("Change accounts in the provider app. Switch can read this database on \(os.rawValue) but cannot safely change its login.")
+        }
         let url = url.resolvingSymlinksInPath()
         guard let table = file.sqliteTable, Self.isIdentifier(table) else {
             throw AIManagerError.unsafePath(file.path)

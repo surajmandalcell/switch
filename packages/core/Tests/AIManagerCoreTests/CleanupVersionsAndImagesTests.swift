@@ -74,7 +74,8 @@ final class CleanupVersionsAndImagesTests: XCTestCase {
         // The running program is named by its link; the scan resolves it, so list the real path too.
         let runningReal = CoreSupport.canonical(user.appending(path: ".local/share/claude/versions/2.1.10")).path
         let versions = try XCTUnwrap(category(try scan(.claude, home: claude, processes: [running, runningReal]), "versions"))
-        XCTAssertEqual(versions.selectable.map(\.title).sorted(), ["Claude Code 2.1.11", "Claude Code 2.1.9", "Claude app 2.1.2", "Claude app 2.1.9"])
+        let desktop = ProviderOS.current == .macOS ? ["Claude app 2.1.2", "Claude app 2.1.9"] : []
+        XCTAssertEqual(versions.selectable.map(\.title).sorted(), ["Claude Code 2.1.11", "Claude Code 2.1.9"] + desktop)
         XCTAssertEqual(versions.protectedItems.map(\.title), ["Claude Code 2.1.10"])
     }
 
@@ -82,7 +83,12 @@ final class CleanupVersionsAndImagesTests: XCTestCase {
         let claude = root.appending(path: "claude")
         try CoreSupport.privateDirectory(claude, fileManager: files)
         try put(user, "Library/Application Support/Claude/claude-code-vm/2.1.246/disk", "vm", age: longAgo)
-        let idle = try XCTUnwrap(category(try scan(.claude, home: claude), "claude-vm"))
+        let vm = category(try scan(.claude, home: claude), "claude-vm")
+        guard ProviderOS.current == .macOS else {
+            XCTAssertNil(vm)
+            return
+        }
+        let idle = try XCTUnwrap(vm)
         XCTAssertFalse(idle.preselected)
         XCTAssertFalse(idle.ageBased)
         XCTAssertEqual(idle.selectable.count, 1)

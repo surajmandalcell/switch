@@ -2,7 +2,8 @@ import CSQLite
 import Foundation
 
 extension ProviderCatalog {
-    private static let openCodeAuth = LiveFile(".local/share/opencode/auth.json", key: "opencode-go", databaseRow: "opencode-go")
+    private static let openCodeAuth = LiveFile(".local/share/opencode/auth.json", key: "opencode-go",
+                                               databaseRow: "opencode-go", root: .openCode)
 
     // OpenCode Zen (id "opencode") is not ported: its balance needs a browser cookie, and no key endpoint exists.
     static let agentOpenCodeGo = ProviderSpec(
@@ -44,22 +45,24 @@ enum OpenCodeGoUsage {
 
     /// Mirrors OpenCode: OPENCODE_DATA_DIR, then $XDG_DATA_HOME/opencode, then ~/.local/share/opencode.
     static func dataDirectory(env: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        func text(_ name: String) -> String? {
-            env[name]?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyText
+        ProviderPaths(home: ProviderPaths.current.home, env: env).root(.openCode)
+    }
+
+    private static func database(in directory: URL, paths: ProviderPaths) -> URL? {
+        if directory.standardizedFileURL.path == paths.root(.openCode).standardizedFileURL.path {
+            return paths.openCodeDatabase(in: directory)
         }
-        if let dir = text("OPENCODE_DATA_DIR") { return URL(fileURLWithPath: (dir as NSString).expandingTildeInPath) }
-        if let xdg = text("XDG_DATA_HOME") {
-            return URL(fileURLWithPath: (xdg as NSString).expandingTildeInPath).appendingPathComponent("opencode")
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share/opencode")
+        return directory.appending(path: "opencode.db")
     }
 
     /// The active `credential` row of one integration in `opencode.db` (OpenCode 2 keeps logins there,
     /// not in auth.json). Read only; nil when the database, the table or the row is missing, or the
     /// value is not JSON with a non-empty `key`.
     static func databaseLogin(_ integration: String, directory: URL) -> (value: Data, key: String)? {
+        let paths = ProviderPaths.current
+        guard let database = database(in: directory, paths: paths), paths.allowsRead(database) else { return nil }
         var db: OpaquePointer?
-        guard sqlite3_open_v2(directory.appendingPathComponent("opencode.db").path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+        guard sqlite3_open_v2(database.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
             sqlite3_close(db)
             return nil
         }
@@ -87,7 +90,10 @@ enum OpenCodeGoUsage {
 
     /// True when `opencode.db` is an OpenCode 2 database, which holds the logins.
     static func hasCredentialTable(directory: URL) throws -> Bool {
-        let database = directory.appendingPathComponent("opencode.db")
+        let paths = ProviderPaths.current
+        // Treat an in-memory database as CLI-owned so switching cannot write a stale auth.json.
+        guard let database = database(in: directory, paths: paths) else { return true }
+        guard paths.allowsRead(database) else { throw AIManagerError.unsafePath(database.path) }
         guard CoreSupport.entryExists(database) else { return false }
         var db: OpaquePointer?
         guard sqlite3_open_v2(database.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
@@ -120,14 +126,22 @@ enum OpenCodeGoUsage {
     /// assistant message in `opencode*.db`. OpenCode 1 writes `message`, OpenCode 2 `session_message`
     /// and copies old rows under the same id, so ids are counted once. Read only.
     static func localSpend(directory: URL, now: Date = Date(), calendar: Calendar = .current) -> MajorsSpend.Report? {
+        let paths = ProviderPaths.current
+        guard paths.allowsRead(directory) else { return nil }
         let since = calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: now)) ?? now
-        let files = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
-            .filter { $0.hasPrefix("opencode") && $0.hasSuffix(".db") }.sorted()
+        let files: [URL]
+        if paths.value("OPENCODE_DB") != nil, directory.standardizedFileURL.path == paths.root(.openCode).standardizedFileURL.path {
+            files = database(in: directory, paths: paths).map { [$0] } ?? []
+        } else {
+            files = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
+                .filter { $0.hasPrefix("opencode") && $0.hasSuffix(".db") }.sorted()
+                .map { directory.appending(path: $0) }
+        }
         var seen = Set<String>()
         var entries: [MajorsSpend.Entry] = []
-        for name in files {
+        for file in files where paths.allowsRead(file) {
             var db: OpaquePointer?
-            guard sqlite3_open_v2(directory.appendingPathComponent(name).path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            guard sqlite3_open_v2(file.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
                 sqlite3_close(db)
                 continue
             }

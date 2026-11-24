@@ -9,6 +9,7 @@ extension ProviderCatalog {
         files: [antigravityToken], login: ["agy"], loginEnv: ["SSH_TTY": "1"],
         dashboard: "https://antigravity.google",
         identify: { credential in AntigravityCLIUsage.identity(credential.json(antigravityToken.id)) },
+        supportedOS: [.macOS],
         fetch: { credential in
             guard let data = credential.files[antigravityToken.id],
                   var file = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -70,9 +71,9 @@ enum AntigravityCLIUsage {
     /// The hub client identity exposes the separate Argon quota; the IDE identity omits it (OpenUsage e1ffa571).
     static let userAgent: String = {
         #if arch(arm64)
-        "antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64)"
+        "antigravity/hub/2.24.0 (aidev_client; os_type=\(ProviderOS.current.agentName); arch=arm64)"
         #else
-        "antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=amd64)"
+        "antigravity/hub/2.24.0 (aidev_client; os_type=\(ProviderOS.current.agentName); arch=amd64)"
         #endif
     }()
 
