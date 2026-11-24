@@ -110,7 +110,7 @@ final class UpstreamFixesAntigravityGoogleTests: XCTestCase {
     }
 
     func testUserAgentUsesHubIdentity() {
-        XCTAssertTrue(AntigravityCLIUsage.userAgent.hasPrefix("antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch="))
+        XCTAssertTrue(AntigravityCLIUsage.userAgent.hasPrefix("antigravity/hub/2.24.0 (aidev_client; os_type=\(ProviderOS.current.agentName); arch="))
     }
 
     // MARK: Google refresh
