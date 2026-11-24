@@ -19,7 +19,7 @@ final class ProviderAccountStoreTests: XCTestCase {
     private var recorder = Recorder()
 
     override func setUpWithError() throws {
-        root = fileManager.temporaryDirectory.appending(path: "ProviderAccountStoreTests-\(UUID().uuidString)")
+        root = testTemporaryDirectory.appending(path: "ProviderAccountStoreTests-\(UUID().uuidString)")
         paths = .init(
             applicationSupport: root.appending(path: "support"),
             credentialStore: root.appending(path: "user/.switch/codex"),
@@ -685,6 +685,98 @@ final class ProviderAccountStoreTests: XCTestCase {
         XCTAssertEqual(row("other", in: userHome), "keep")
         XCTAssertEqual(try store.defaults()["test-files"], first.id)
     }
+
+    func testSecondWriteFailureRestoresFirstFile() throws {
+        let store = try makeStore([filesSpec()])
+        let (first, second) = try seedAB(store)
+        let shared = userHome.appending(path: ".config/shared.json")
+        let invalid = Data("invalid shared JSON".utf8)
+        try invalid.write(to: shared)
+
+        XCTAssertThrowsError(try store.makeDefault(second.id))
+        XCTAssertEqual(try authObject()["id"] as? String, "A")
+        XCTAssertEqual(try Data(contentsOf: shared), invalid)
+        XCTAssertEqual(try store.defaults()["test-files"], first.id)
+    }
+
+    func testIndexSaveFailureRestoresLiveLoginAndReportsRollbackFailure() throws {
+        let store = try makeStore([filesSpec()])
+        let (first, second) = try seedAB(store)
+        let index = paths.applicationSupport.appending(path: "provider-accounts/accounts.json")
+        let savedIndex = try Data(contentsOf: index)
+
+        XCTAssertThrowsError(try store.makeDefault(second.id) {
+            XCTAssertEqual(try self.authObject()["id"] as? String, "B")
+            try self.fileManager.removeItem(at: index)
+            try self.fileManager.createDirectory(at: index, withIntermediateDirectories: false)
+        }) { error in
+            XCTAssertTrue(error.localizedDescription.contains("test-files"))
+        }
+
+        XCTAssertEqual(try authObject()["id"] as? String, "A")
+        XCTAssertEqual(row("tok", in: userHome), "tk-A")
+        try fileManager.removeItem(at: index)
+        try savedIndex.write(to: index)
+        XCTAssertEqual(try store.defaults()["test-files"], first.id)
+    }
+
+    func testOpenReplaysJournalLeftAfterIndexWrite() throws {
+        let store = try makeStore([filesSpec()])
+        let (first, second) = try seedAB(store)
+        let journal = paths.applicationSupport.appending(path: "provider-accounts/pending-switch.json")
+        var pending = Data()
+        _ = try store.makeDefault(second.id) { pending = try Data(contentsOf: journal) }
+        XCTAssertEqual(try store.defaults()["test-files"], second.id)
+        try pending.write(to: journal)
+
+        let reopened = try makeStore([filesSpec()])
+        XCTAssertEqual(try reopened.defaults()["test-files"], first.id)
+        XCTAssertEqual(try reopened.accounts().first { $0.id == second.id }?.lastUsedAt, second.lastUsedAt)
+        XCTAssertEqual(try authObject()["id"] as? String, "A")
+        XCTAssertEqual(row("tok", in: userHome), "tk-A")
+        XCTAssertFalse(fileManager.fileExists(atPath: journal.path))
+    }
+
+    func testRollbackRestoresMissingSharedFileAndExactJSONBytes() throws {
+        let store = try makeStore([filesSpec(optionalCompanions: true)])
+        let (first, second) = try seedAB(store)
+        let shared = userHome.appending(path: ".config/shared.json")
+        for bytes in [nil, Data(#"{ "keep": 2, "testcli": { "tok": "s-A" } }"#.utf8)] {
+            if let bytes { try bytes.write(to: shared) } else { try fileManager.removeItem(at: shared) }
+            XCTAssertThrowsError(try store.makeDefault(second.id) { throw AIManagerError.sourceChanged })
+            if let bytes { XCTAssertEqual(try Data(contentsOf: shared), bytes) }
+            else { XCTAssertFalse(fileManager.fileExists(atPath: shared.path)) }
+            XCTAssertEqual(try store.defaults()["test-files"], first.id)
+        }
+    }
+
+    func testRecoveryPreservesALaterTokenRefresh() throws {
+        let store = try makeStore([filesSpec()])
+        let (_, second) = try seedAB(store)
+        let auth = userHome.appending(path: authPath)
+        let refreshed = Data(#"{"id":"B","token":"new-token"}"#.utf8)
+        XCTAssertThrowsError(try store.makeDefault(second.id) {
+            try refreshed.write(to: auth)
+            throw AIManagerError.sourceChanged
+        }) { XCTAssertTrue($0.localizedDescription.contains("test-files")) }
+        XCTAssertThrowsError(try makeStore([filesSpec()]))
+        XCTAssertEqual(try Data(contentsOf: auth), refreshed)
+    }
+
+#if !os(Windows)
+    func testSwitchWithLinkedLiveParentPreservesLink() throws {
+        let store = try makeStore([filesSpec()])
+        let (_, second) = try seedAB(store)
+        let folder = userHome.appending(path: ".testcli")
+        let linked = root.appending(path: "linked-login")
+        try fileManager.moveItem(at: folder, to: linked)
+        try fileManager.createSymbolicLink(at: folder, withDestinationURL: linked)
+
+        _ = try store.makeDefault(second.id)
+        XCTAssertEqual(try authObject()["id"] as? String, "B")
+        XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: folder.path), linked.path)
+    }
+#endif
 
     func testSwitchRejectsIncompleteRequiredSnapshotBeforeChangingLiveFiles() throws {
         let store = try makeStore([filesSpec()])
