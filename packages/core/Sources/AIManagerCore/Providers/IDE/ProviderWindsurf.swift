@@ -22,11 +22,15 @@ extension ProviderCatalog {
 
 /// The cached plan Windsurf stores in `state.vscdb` under `windsurf.settings.cachedPlanInfo`.
 enum WindsurfLocal {
-    static func databaseURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        home.appending(path: "Library/Application Support/Windsurf/User/globalStorage/state.vscdb")
+    static func databaseURL(home: URL = ProviderPaths.current.home,
+                            env: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        ProviderPaths(home: home, env: env).root(.windsurf).appending(path: "User/globalStorage/state.vscdb")
     }
 
     static func read(database: URL = databaseURL()) throws -> ProviderUsage {
+        guard ProviderPaths.current.allowsRead(database) else {
+            throw ProviderError.missingCredential("No Windsurf database in the test home.")
+        }
         guard FileManager.default.fileExists(atPath: database.path) else {
             throw ProviderError.missingCredential("Add a Windsurf session bundle, or open Windsurf once so it writes its plan data.")
         }

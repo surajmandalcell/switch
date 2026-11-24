@@ -64,7 +64,7 @@ func executableCandidates(named name: String, environment: [String: String]) -> 
 #if os(Windows)
     // Windows names the variable "Path"; environment keys keep their case.
     let path = environment.first { $0.key.uppercased() == "PATH" }?.value
-    let extensions = (ProcessInfo.processInfo.environment["PATHEXT"] ?? ".COM;.EXE;.BAT;.CMD")
+    let extensions = (environment.first { $0.key.uppercased() == "PATHEXT" }?.value ?? ".COM;.EXE;.BAT;.CMD")
         .split(separator: ";").map { $0.lowercased() }
     return (path ?? "").split(separator: ";").flatMap { folder -> [URL] in
         let directory = URL(fileURLWithPath: String(folder))

@@ -468,10 +468,10 @@ public actor ClaudeCostScanner {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [URL] {
-        var candidates = (environment["CLAUDE_CONFIG_DIR"] ?? "").split(separator: ",")
+        let paths = ProviderPaths(home: home, env: environment)
+        var candidates = (paths.value("CLAUDE_CONFIG_DIR") ?? "").split(separator: ",")
             .map { URL(fileURLWithPath: $0.trimmingCharacters(in: .whitespaces)) }
-        let xdg = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-            ?? home.appending(path: ".config", directoryHint: .isDirectory)
+        let xdg = paths.xdg("XDG_CONFIG_HOME", fallback: ".config")
         candidates += [xdg.appending(path: "claude", directoryHint: .isDirectory),
                        home.appending(path: ".claude", directoryHint: .isDirectory)]
         return candidates.compactMap(projectsDirectory)

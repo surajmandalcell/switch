@@ -1,8 +1,10 @@
 import Foundation
 
 extension ProviderCatalog {
-    private static let geminiCreds = LiveFile(".gemini/oauth_creds.json")
-    private static let geminiAccounts = LiveFile(".gemini/google_accounts.json", optional: true)
+    private static let geminiCreds = LiveFile(".gemini/oauth_creds.json", homeEnv: "GEMINI_CLI_HOME",
+                                              homeEnvSubpath: ".gemini/oauth_creds.json", root: .gemini)
+    private static let geminiAccounts = LiveFile(".gemini/google_accounts.json", homeEnv: "GEMINI_CLI_HOME",
+                                                 homeEnvSubpath: ".gemini/google_accounts.json", optional: true, root: .gemini)
 
     static let geminiCLI = ProviderSpec(
         id: "gemini-cli", name: "Gemini CLI", style: .files,
@@ -125,27 +127,34 @@ enum GeminiCLIUsage {
 
     /// Reads the OAuth client from the installed gemini-cli package, as CodexBar does. Nothing is embedded.
     static func oauthClient(env: [String: String] = ProcessInfo.processInfo.environment,
-                            home: String = FileManager.default.homeDirectoryForCurrentUser.path)
+                            home: String = ProviderPaths.current.home.path)
         -> (id: String, secret: String)? {
         if let id = env["GEMINI_OAUTH_CLIENT_ID"], let secret = env["GEMINI_OAUTH_CLIENT_SECRET"],
            !id.isEmpty, !secret.isEmpty { return (id, secret) }
-        if let path = env["GEMINI_OAUTH2_JS_PATH"],
+        let paths = ProviderPaths(home: URL(fileURLWithPath: home), env: env)
+        if let path = env["GEMINI_OAUTH2_JS_PATH"], paths.allowsRead(URL(fileURLWithPath: path)),
            let text = try? String(contentsOfFile: path, encoding: .utf8), let client = parseClient(js: text) {
             return client
         }
         var roots: [String] = []
+        if paths.os == .Windows {
+            roots.append(paths.windowsNPMPrefix.appending(path: "node_modules/@google/gemini-cli").path)
+        }
         let bins = executableCandidates(named: "gemini", environment: env)
             + ["/opt/homebrew/bin", "/usr/local/bin", "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.local/bin"]
                 .map { URL(fileURLWithPath: $0).appendingPathComponent("gemini") }
-        for candidate in bins {
+        for candidate in bins where paths.allowsRead(candidate) {
             let bin = candidate.resolvingSymlinksInPath()
+            if paths.os == .Windows {
+                roots.append(candidate.deletingLastPathComponent().appending(path: "node_modules/@google/gemini-cli").path)
+            }
             if FileManager.default.fileExists(atPath: bin.path), let root = packageRoot(above: bin) { roots.append(root) }
         }
         for prefix in ["/opt/homebrew", "/usr/local", "\(home)/.npm-global"] {
             roots.append("\(prefix)/lib/node_modules/@google/gemini-cli")
             roots.append("\(prefix)/opt/gemini-cli/libexec/lib/node_modules/@google/gemini-cli")
         }
-        return roots.lazy.compactMap { client(inPackage: $0) }.first
+        return roots.lazy.filter { paths.allowsRead(URL(fileURLWithPath: $0)) }.compactMap { client(inPackage: $0) }.first
     }
 
     static func parseClient(js: String) -> (id: String, secret: String)? {

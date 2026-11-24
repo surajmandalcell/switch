@@ -120,7 +120,7 @@ extension RPCRuntimeTests {
         let codebuff = try XCTUnwrap(providers.first { $0["id"] as? String == "codebuff" })
         XCTAssertEqual(codebuff["style"] as? String, "files")
         XCTAssertEqual(codebuff["signedIn"] as? Bool, true)
-        XCTAssertEqual(codebuff["credentialPaths"] as? [String], ["~/.config/manicode/credentials.json"])
+        XCTAssertEqual(codebuff["credentialPaths"] as? [String], [file.path])
         XCTAssertNotNil(codebuff["dashboard"] as? String)
         let secret = try XCTUnwrap(providers.first { ($0["fields"] as? [Any])?.isEmpty == false })
         XCTAssertEqual(secret["style"] as? String, "secret")
