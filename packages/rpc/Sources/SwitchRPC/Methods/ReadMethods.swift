@@ -17,7 +17,12 @@ extension RPCServer {
         switch method {
         case "providers.list":
             let signedIn = Set(await engine.detectSignedIn().signedIn)
-            return AccountManager.providerCatalog.map { WireProvider($0, signedIn: signedIn) }
+            var providers: [WireProvider] = []
+            for descriptor in AccountManager.providerCatalog {
+                let paths = await manager?.providerCredentialPaths(descriptor.id) ?? []
+                providers.append(WireProvider(descriptor, signedIn: signedIn, credentialPaths: paths))
+            }
+            return providers
         case "providers.liveIdentity":
             // The add sheet's "Signed in as": the login in the user's home, with the privacy settings applied.
             let id = try params(ProviderOnlyParams.self, method: method, frame: frame).providerID
@@ -45,7 +50,8 @@ extension RPCServer {
             return try await requireManager().discover(explicit: folder.map { URL(fileURLWithPath: $0) })
                 .map(WireDiscoveredSource.init)
         case "claude.shellIntegration.get":
-            return ["enabled": try await requireManager().claudeShellIntegrationInstalled()]
+            return ["enabled": try await requireManager().claudeShellIntegrationInstalled(),
+                    "shellIntegrationSupported": AccountManager.shellIntegrationSupported]
         case "droid.missions":
             return try await requireManager().droidMissions().map(WireMission.init)
         case "usage.cacheSizes": return await engine.cacheSizes()
