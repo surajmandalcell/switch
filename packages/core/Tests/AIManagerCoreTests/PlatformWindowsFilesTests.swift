@@ -11,7 +11,7 @@ final class PlatformWindowsFilesTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory.appending(path: "switch-platform-\(UUID().uuidString)")
+        root = testTemporaryDirectory.appending(path: "switch-platform-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
@@ -95,10 +95,19 @@ final class PlatformWindowsFilesTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file), Data("[]".utf8))
     }
 
-    func testExistingSharedFolderIsMadePrivate() throws {
+    func testPrivateWritePreservesAnExistingSharedFolder() throws {
         let folder = root.appending(path: "shared")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
         XCTAssertFalse(try onlyUserEntries(folder)) // inherited from the temporary folder
+        let login = folder.appending(path: "auth.json")
+        try CoreSupport.atomicWrite(Data("synthetic".utf8), to: login, fileManager: .default)
+        XCTAssertFalse(try onlyUserEntries(folder))
+        XCTAssertTrue(try onlyUserEntries(login))
+    }
+
+    func testExistingManagedPrivateDirectoryIsSecured() throws {
+        let folder = root.appending(path: "vault")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
         try CoreSupport.privateDirectory(folder, fileManager: .default)
         XCTAssertTrue(try onlyUserEntries(folder))
     }
@@ -167,6 +176,55 @@ final class PlatformWindowsFilesTests: XCTestCase {
         try Data("b".utf8).write(to: b)
         XCTAssertEqual(AIManagerCore.rename(a.path, b.path), 0)
         XCTAssertEqual(try String(contentsOf: b, encoding: .utf8), "a")
+    }
+
+    func testPublishAndExchangeKeepRegularFilePresentDuringReplacement() throws {
+        let live = root.appending(path: "auth.json")
+        let staged = root.appending(path: "staged")
+        try Data("old".utf8).write(to: live)
+        let reader = DispatchGroup()
+        let started = DispatchSemaphore(value: 0)
+        let stop = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async(group: reader) {
+            started.signal()
+            let deadline = Date().addingTimeInterval(30)
+            repeat {
+                WindowsFiles.withWin32Path(WindowsFiles.native(live.path)) { path in
+                    XCTAssertNotEqual(GetFileAttributesW(path), DWORD.max)
+                }
+            } while Date() < deadline && stop.wait(timeout: .now()) == .timedOut
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+        defer { stop.signal(); XCTAssertEqual(reader.wait(timeout: .now() + 5), .success) }
+        for value in 1...100 {
+            try Data(String(value).utf8).write(to: staged)
+            if value.isMultiple(of: 2) {
+                try CoreSupport.exchange(staged, live)
+                XCTAssertEqual(try String(contentsOf: staged, encoding: .utf8), String(value - 1))
+            } else {
+                try CoreSupport.publish(staged, replacing: live, fileManager: .default)
+                XCTAssertFalse(CoreSupport.entryExists(staged))
+            }
+        }
+        XCTAssertEqual(try String(contentsOf: live, encoding: .utf8), "100")
+    }
+
+    func testRecoveryRepairsBothInterruptedDirectoryMoves() throws {
+        let staged = root.appending(path: "staged")
+        let live = root.appending(path: "live")
+        let aside = WindowsFiles.aside(for: live)
+        for (url, bytes) in [(staged, "new"), (aside, "old")] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+            try Data(bytes.utf8).write(to: url.appending(path: "id"))
+        }
+        try WindowsFiles.recoverExchange(staged, live)
+        XCTAssertEqual(try String(contentsOf: live.appending(path: "id"), encoding: .utf8), "old")
+        try FileManager.default.moveItem(at: live, to: aside)
+        try FileManager.default.moveItem(at: staged, to: live)
+        try WindowsFiles.recoverExchange(staged, live)
+        XCTAssertEqual(try String(contentsOf: staged.appending(path: "id"), encoding: .utf8), "old")
+        XCTAssertEqual(try String(contentsOf: live.appending(path: "id"), encoding: .utf8), "new")
+        XCTAssertFalse(CoreSupport.entryExists(aside))
     }
 
     func testFlockConflictsAcrossDescriptors() throws {
