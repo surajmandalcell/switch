@@ -539,7 +539,8 @@ final class ProviderAccountStoreTests: XCTestCase {
         let catalog = AccountManager.providerCatalog
         XCTAssertEqual(catalog.prefix(4).map(\.id), [.codex, .grokBuild, .droid, .claudeCode])
         for spec in ProviderCatalog.addable {
-            XCTAssertEqual(catalog.first { $0.id == spec.id }?.availability, .enabled, spec.id.rawValue)
+            XCTAssertEqual(catalog.first { $0.id == spec.id }?.availability,
+                           spec.supportedOS.contains(.current) ? .enabled : .unavailable, spec.id.rawValue)
         }
         let gemini = ProviderSpec(id: "gemini-cli", name: "Gemini", usage: { _ in ProviderUsage() })
         let custom = AccountManager.descriptors(for: [gemini, secretSpec])
@@ -1023,7 +1024,7 @@ final class ProviderAccountStoreTests: XCTestCase {
             (ProviderCatalog.agentKimi, ".kimi-code/credentials/kimi-code.json", ".kimi/sessions/project/conversation-original.json"),
             (ProviderCatalog.antigravityCLI, ".gemini/antigravity-cli/antigravity-oauth-token", ".gemini/antigravity-cli/conversation-original.json"),
         ]
-        for (spec, path, historyPath) in providers {
+        for (spec, path, historyPath) in providers where spec.supportedOS.contains(.current) {   // Linux and Windows hide Copilot and Antigravity
             let manager = try makeManager([spec])
             let auth = userHome.appending(path: path)
             try fileManager.createDirectory(at: auth.deletingLastPathComponent(), withIntermediateDirectories: true)
