@@ -3,6 +3,47 @@ import Foundation
 import WinSDK
 #endif
 
+func normalizedPathSeparators(_ path: String) -> String {
+#if os(Windows)
+    path.replacingOccurrences(of: "\\", with: "/")
+#else
+    path
+#endif
+}
+
+func equalPathNames(_ lhs: String, _ rhs: String) -> Bool {
+#if os(Windows)
+    lhs.withCString(encodedAs: UTF16.self) { left in
+        rhs.withCString(encodedAs: UTF16.self) { right in
+            CompareStringOrdinal(left, Int32(lhs.utf16.count), right, Int32(rhs.utf16.count), true) == CSTR_EQUAL
+        }
+    }
+#else
+    lhs == rhs
+#endif
+}
+
+func backupPathKey(_ path: String) -> String {
+#if os(Windows)
+    path.uppercased()
+#else
+    path
+#endif
+}
+
+func isSafeRelativeComponent(_ part: Substring) -> Bool {
+    guard !part.isEmpty, part != ".", part != ".." else { return false }
+#if os(Windows)
+    // Win32 strips trailing dots/spaces and interprets colons as drive or stream names.
+    guard !part.contains(":"), part.last != ".", part.last != " " else { return false }
+    let device = part.prefix { $0 != "." }.uppercased()
+    if ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"].contains(device) { return false }
+    if device.count == 4, device.hasPrefix("COM") || device.hasPrefix("LPT"),
+       let digit = device.last, "0123456789¹²³".contains(digit) { return false }
+#endif
+    return true
+}
+
 /// True for a path that does not depend on the working folder (plan unit P8).
 /// Windows: a drive form (`C:\`, `C:/`), a UNC form (`\\server`, `//server`), or a rooted `\` or `/` path.
 /// Elsewhere: a leading `/`.

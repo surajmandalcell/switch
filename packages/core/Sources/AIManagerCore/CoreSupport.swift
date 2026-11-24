@@ -100,11 +100,11 @@ enum CoreSupport {
     static func isContained(_ candidate: URL, by parent: URL) -> Bool {
         let candidateParts = canonical(candidate).pathComponents
         let parentParts = canonical(parent).pathComponents
-        return candidateParts.count >= parentParts.count && Array(candidateParts.prefix(parentParts.count)) == parentParts
+        return candidateParts.count >= parentParts.count && zip(candidateParts, parentParts).allSatisfy(equalPathNames)
     }
 
     static func sameLocation(_ first: URL, _ second: URL) -> Bool {
-        canonical(first).pathComponents == canonical(second).pathComponents
+        canonical(first).pathComponents.elementsEqual(canonical(second).pathComponents, by: equalPathNames)
     }
 
     static func digest(_ data: Data) -> String {
@@ -157,9 +157,9 @@ enum CoreSupport {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    static func privateDirectory(_ url: URL, fileManager: FileManager) throws {
+    static func privateDirectory(_ url: URL, fileManager: FileManager, preserveExistingACL: Bool = false) throws {
 #if os(Windows)
-        try WindowsFiles.privateDirectory(url)
+        try WindowsFiles.privateDirectory(url, preserveExistingACL: preserveExistingACL)
 #else
         if entryExists(url),
            (try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
@@ -174,20 +174,21 @@ enum CoreSupport {
 #endif
     }
 
-    static func atomicWrite(_ data: Data, to destination: URL, permissions: Int = 0o600, fileManager: FileManager) throws {
+    static func atomicWrite(_ data: Data, to destination: URL, permissions: Int = 0o600, fileManager: FileManager,
+                            beforeReplace: () throws -> Void = {}) throws {
 #if os(Windows)
         // Always owner-only: Windows has no group or other bits to honour `permissions` with.
-        try privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
-        try WindowsFiles.writePrivate(data, to: destination)
+        try privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager, preserveExistingACL: true)
+        try WindowsFiles.writePrivate(data, to: destination, beforeReplace: beforeReplace)
 #else
         try privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
         let temporary = destination.deletingLastPathComponent().appending(path: ".\(destination.lastPathComponent).\(UUID().uuidString).tmp")
         try data.write(to: temporary, options: [.atomic])
+        defer { if entryExists(temporary) { try? fileManager.removeItem(at: temporary) } }
         try fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: temporary.path)
+        try beforeReplace()
         guard rename(temporary.path, destination.path) == 0 else {
-            let error = NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-            try? fileManager.removeItem(at: temporary)
-            throw error
+            throw posixError()
         }
 #endif
     }
@@ -224,7 +225,8 @@ enum CoreSupport {
     }
 
     static func safeRelativePath(_ path: String) -> Bool {
-        !path.isEmpty && !isAbsolutePath(path) && !path.split(separator: "/").contains("..")
+        !path.isEmpty && !path.contains("\0") && normalizedPathSeparators(path)
+            .split(separator: "/", omittingEmptySubsequences: false).allSatisfy(isSafeRelativeComponent)
     }
 
     static func entryExists(_ url: URL) -> Bool {

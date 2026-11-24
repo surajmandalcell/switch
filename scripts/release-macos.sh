@@ -242,3 +242,15 @@ for old in "$release_dir"/Switch-v*-mac-arm64.zip "$release_dir"/Switch-v*-mac-a
 done
 printf 'Published %s\nArchive: %s\nDisk image: %s\nChecksum: %s\n' \
   "$(gh release view "$tag" --repo "$repo" --json url --jq .url)" "$archive" "$dmg" "$checksum"
+
+# The website and the app update check read this version from api.samhq.app (samhq_backend/releases.json).
+backend="$repo_root/../samhq_backend"
+if (( !preview )) && [[ -f "$backend/releases.json" ]]; then
+  build_number="$(plutil -extract CFBundleVersion raw -o - "$verify_dir/Switch.app/Contents/Info.plist")"
+  jq --arg v "$version" --argjson b "$build_number" \
+    '.switch.macos |= (.version = $v | .build = $b | .known_versions = [$v] + (.known_versions - [$v]))' \
+    "$backend/releases.json" > "$backend/releases.json.tmp"
+  mv "$backend/releases.json.tmp" "$backend/releases.json"
+  printf 'Updated releases.json. Publish it (a push to main deploys api.samhq.app):\n  git -C %s commit --only releases.json -m "Release Switch %s" && git -C %s push\n' \
+    "$backend" "$version" "$backend"
+fi
