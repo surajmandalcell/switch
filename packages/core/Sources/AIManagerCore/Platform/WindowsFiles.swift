@@ -340,33 +340,22 @@ enum WindowsFiles {
 
     static func exchange(_ first: URL, _ second: URL) throws {
         try recoverExchange(first, second)
-        var old = stat(), new = stat()
-        guard lstat(first.path, &new) == 0, lstat(second.path, &old) == 0 else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        guard CoreSupport.entryExists(first), CoreSupport.entryExists(second) else {
+            errno = ENOENT
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT))
         }
         let aside = aside(for: second).path
-        if new.st_mode & S_IFMT == S_IFREG, old.st_mode & S_IFMT == S_IFREG {
-            // Session binding checks the displaced inode for a concurrent edit after publication.
-            let replaced = withWin32Path(native(second.path)) { live in
-                withWin32Path(native(first.path)) { staged in
-                    withWin32Path(native(aside)) { backup in ReplaceFileW(live, staged, backup, 0, nil, nil) }
-                }
-            }
-            guard replaced else {
-                let failure = lastError("Replacing a file", second.path)
-                try recoverExchange(first, second)
-                throw failure
-            }
-            guard move(aside, first.path, replacing: false) else { throw lastError("Saving the displaced file", aside) }
-            return
-        }
         guard move(second.path, aside, replacing: false) else { throw lastError("Swap step 1", second.path) }
         guard move(first.path, second.path, replacing: false) else {
             let failure = lastError("Swap step 2", first.path)
-            try recoverExchange(first, second)
+            _ = move(aside, second.path, replacing: false)
             throw failure
         }
-        guard move(aside, first.path, replacing: false) else { throw lastError("Swap step 3", aside) }
+        guard move(aside, first.path, replacing: false) else {
+            let failure = lastError("Swap step 3", aside)
+            if move(second.path, first.path, replacing: false) { _ = move(aside, second.path, replacing: false) }
+            throw failure
+        }
     }
 
     /// A descriptor that owns a duplicate of `handle`, for POSIX-shaped readers; close it with `_close`.

@@ -194,16 +194,6 @@ enum CoreSupport {
     }
 
     static func publish(_ staged: URL, replacing destination: URL, fileManager: FileManager) throws {
-#if os(Windows)
-        var stagedInfo = stat(), destinationInfo = stat()
-        if lstat(staged.path, &stagedInfo) == 0, stagedInfo.st_mode & S_IFMT == S_IFREG,
-           lstat(destination.path, &destinationInfo) == 0, destinationInfo.st_mode & S_IFMT == S_IFREG {
-            guard WindowsFiles.move(staged.path, destination.path, replacing: true) else {
-                throw WindowsFiles.lastError("Publishing a file", destination.path)
-            }
-            return
-        }
-#endif
         guard entryExists(destination) else {
             guard rename(staged.path, destination.path) == 0 else { throw posixError() }
             return
