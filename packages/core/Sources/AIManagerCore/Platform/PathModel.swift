@@ -19,7 +19,7 @@ func equalPathNames(_ lhs: String, _ rhs: String) -> Bool {
         }
     }
 #else
-    lhs.utf8.elementsEqual(rhs.utf8)
+    lhs == rhs
 #endif
 }
 
