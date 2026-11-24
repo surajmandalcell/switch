@@ -236,16 +236,22 @@ Item {
       // settings.md claude-shell: the switch shows the marked line's presence; a toggle sets it, then re-reads it.
       // On failure a red line under the help says "Couldn’t update the shell setup. <error>".
       SRow { sid: "claude-shell"; group: page.gAccounts; title: "Use the selected Claude account in terminals"
-        help: "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
+        help: shellLine.supported ? "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
+                                  : "Not available on Windows yet. PowerShell and Command Prompt don’t read ~/.zshrc."
         error: shellLine.error
         Switch {
           id: shellLine
           objectName: "pref-claudeShell"
           property string error: ""
-          enabled: Helper.hasMethod("claude.shellIntegration.set")
+          property bool supported: true   // claude.shellIntegration.get says false on Windows
+          enabled: supported && Helper.hasMethod("claude.shellIntegration.set")
           function read() {
             if (Helper.hasMethod("claude.shellIntegration.get"))
-              Helper.call("claude.shellIntegration.get", {}, function (r, err) { if (!err) shellLine.checked = r.enabled === true })
+              Helper.call("claude.shellIntegration.get", {}, function (r, err) {
+                if (err) return
+                shellLine.supported = r.shellIntegrationSupported !== false
+                shellLine.checked = r.enabled === true
+              })
           }
           Component.onCompleted: read()
           onToggled: function (on) {

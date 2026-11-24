@@ -3,7 +3,7 @@ import Foundation
 extension ProviderCatalog {
     private static let cursorRows = LiveFile(
         sqlite: "Library/Application Support/Cursor/User/globalStorage/state.vscdb", table: "ItemTable",
-        keys: CursorUsage.keys)
+        keys: CursorUsage.keys, root: .cursor, rootSubpath: "User/globalStorage/state.vscdb")
 
     static let cursor = ProviderSpec(
         id: "cursor", name: "Cursor", style: .files, files: [cursorRows],

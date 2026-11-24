@@ -107,7 +107,8 @@ final class AccountOnboardingTests: XCTestCase {
         for (id, name) in [(ProviderID.geminiCLI, "Gemini CLI"), (.antigravityCLI, "Antigravity CLI")] {
             let entries = AccountManager.providerCatalog.filter { $0.id == id }
             XCTAssertEqual(entries.map(\.displayName), [name])
-            XCTAssertEqual(entries.map(\.availability), [.enabled])
+            let supported = ProviderCatalog.all.first { $0.id == id }?.supportedOS.contains(.current) ?? true
+            XCTAssertEqual(entries.map(\.availability), [supported ? .enabled : .unavailable])
         }
     }
 

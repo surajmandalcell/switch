@@ -287,7 +287,11 @@ public struct CredentialField: Sendable, Equatable {
     }
 }
 
-/// A CLI-owned credential. `path` is relative to the user's home directory, such as
+public enum ProviderFileRoot: Equatable, Sendable {
+    case cursor, windsurf, kiro, kilo, openCode, gcloud, gemini, kimi, devin
+}
+
+/// A CLI-owned credential. `path` is the saved credential's stable key and its default home-relative path, such as
 /// ".grok/auth.json". When `$homeEnv` is set, its value replaces the parent directory (every
 /// component before the file name), so GROK_HOME=/x resolves ".grok/auth.json" to
 /// "/x/auth.json" and CLOUDSDK_CONFIG=/y resolves ".config/gcloud/adc.json" to "/y/adc.json".
@@ -306,10 +310,12 @@ public struct LiveFile: Sendable, Equatable {
     public let databaseRow: String?
     public let sqliteTable: String?
     public let sqliteKeys: [String]
+    let root: ProviderFileRoot?
+    let rootSubpath: String?
 
     public init(_ path: String, homeEnv: String? = nil, homeEnvSubpath: String? = nil,
                 optional: Bool = false, key: String? = nil,
-                databaseRow: String? = nil) {
+                databaseRow: String? = nil, root: ProviderFileRoot? = nil, rootSubpath: String? = nil) {
         self.path = path
         self.homeEnv = homeEnv
         self.homeEnvSubpath = homeEnvSubpath
@@ -318,9 +324,12 @@ public struct LiveFile: Sendable, Equatable {
         self.databaseRow = databaseRow
         self.sqliteTable = nil
         self.sqliteKeys = []
+        self.root = root
+        self.rootSubpath = rootSubpath
     }
 
-    public init(sqlite path: String, table: String, keys: [String], optional: Bool = false) {
+    public init(sqlite path: String, table: String, keys: [String], optional: Bool = false,
+                root: ProviderFileRoot? = nil, rootSubpath: String? = nil) {
         self.path = path
         self.homeEnv = nil
         self.homeEnvSubpath = nil
@@ -329,6 +338,8 @@ public struct LiveFile: Sendable, Equatable {
         self.databaseRow = nil
         self.sqliteTable = table
         self.sqliteKeys = keys
+        self.root = root
+        self.rootSubpath = rootSubpath
     }
 
     /// Key into `ProviderCredential.files`.
@@ -413,6 +424,7 @@ public struct ProviderSpec: Sendable, Identifiable {
     public let login: [String]?
     /// Extra environment for the sign-in command, such as SSH_TTY=1 to force file storage.
     public let loginEnv: [String: String]
+    public let supportedOS: [ProviderOS]
     public let dashboard: URL?
     /// Statuspage.io base such as https://status.openai.com.
     public let statusPage: URL?
@@ -422,7 +434,8 @@ public struct ProviderSpec: Sendable, Identifiable {
     public init(id: String, name: String, style: CredentialStyle = .secret,
                 fields: [CredentialField] = [], files: [LiveFile] = [], login: [String]? = nil,
                 loginEnv: [String: String] = [:], dashboard: String? = nil, statusPage: String? = nil,
-                identify: Identify? = nil, fetch: @escaping Fetch) {
+                identify: Identify? = nil, supportedOS: [ProviderOS] = [.macOS, .Linux, .Windows],
+                fetch: @escaping Fetch) {
         self.id = ProviderID(rawValue: id)
         self.name = name
         self.style = style
@@ -433,6 +446,7 @@ public struct ProviderSpec: Sendable, Identifiable {
         self.dashboard = dashboard.flatMap(URL.init(string:))
         self.statusPage = statusPage.flatMap(URL.init(string:))
         self.identify = identify
+        self.supportedOS = supportedOS
         self.fetch = fetch
     }
 
@@ -440,10 +454,10 @@ public struct ProviderSpec: Sendable, Identifiable {
     public init(id: String, name: String, style: CredentialStyle = .secret,
                 fields: [CredentialField] = [], files: [LiveFile] = [], login: [String]? = nil,
                 loginEnv: [String: String] = [:], dashboard: String? = nil, statusPage: String? = nil,
-                identify: Identify? = nil,
+                identify: Identify? = nil, supportedOS: [ProviderOS] = [.macOS, .Linux, .Windows],
                 usage: @escaping @Sendable (ProviderCredential) async throws -> ProviderUsage) {
         self.init(id: id, name: name, style: style, fields: fields, files: files, login: login,
-                  loginEnv: loginEnv, dashboard: dashboard, statusPage: statusPage, identify: identify,
+                  loginEnv: loginEnv, dashboard: dashboard, statusPage: statusPage, identify: identify, supportedOS: supportedOS,
                   fetch: { FetchResult(try await usage($0)) })
     }
 }
@@ -534,7 +548,7 @@ public enum HTTP {
         }
     }
 
-    public static let userAgent = "Switch/3 (macOS)"
+    public static let userAgent = "Switch/3 (\(ProviderOS.current.rawValue))"
 
     /// Sends one request and returns any status. Network failures throw `ProviderError.network`.
     public static func send(_ url: String, method: String = "GET", headers: [String: String] = [:],

@@ -678,9 +678,7 @@ final class AccountViewModel: ObservableObject {
                 }
                 if start.opensInTerminal {
                     // Switch never launches a generic sign-in itself: Terminal runs the saved command.
-                    let spec = ProviderCatalog.spec(providerID)
-                    let keys = ["HOME", "FACTORY_HOME_OVERRIDE", "FACTORY_DISABLE_KEYRING"] + (spec?.files.compactMap(\.homeEnv) ?? [])
-                        + (spec?.loginEnv.keys.sorted() ?? [])
+                    let keys = TerminalLaunch.signInExportKeys(for: providerID)
                     let script = try makeLaunchArtifact(
                         start.launchSpec, name: "Sign In to Switch Account.command", exportKeys: keys)
                     if paths.isolationRoot != nil {

@@ -7,7 +7,7 @@ import Crypto
 
 extension ProviderCatalog {
     private static let vertexADC = LiveFile(".config/gcloud/application_default_credentials.json",
-                                            homeEnv: "CLOUDSDK_CONFIG")
+                                            homeEnv: "CLOUDSDK_CONFIG", root: .gcloud)
 
     static let vertexAI = ProviderSpec(
         id: "vertexai", name: "Vertex AI", style: .files,
@@ -90,9 +90,10 @@ enum VertexAIUsage {
 
     /// The project from `gcloud config set project`: `[core] project` of the active configuration file.
     static func configProject(env: [String: String] = ProcessInfo.processInfo.environment,
-                              home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
-        let root = env["CLOUDSDK_CONFIG"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-            ?? home.appending(path: ".config/gcloud")
+                              home: URL = ProviderPaths.current.home) -> String? {
+        let paths = ProviderPaths(home: home, env: env)
+        let root = paths.root(.gcloud)
+        guard paths.allowsRead(root) else { return nil }
         let active = (try? String(contentsOf: root.appending(path: "active_config"), encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let name = env["CLOUDSDK_ACTIVE_CONFIG_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? active.flatMap { $0.isEmpty ? nil : $0 } ?? "default"

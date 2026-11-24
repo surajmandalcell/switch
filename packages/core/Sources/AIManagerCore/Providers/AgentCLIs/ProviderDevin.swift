@@ -1,7 +1,7 @@
 import Foundation
 
 extension ProviderCatalog {
-    private static let devinFile = LiveFile(".local/share/devin/credentials.toml")
+    private static let devinFile = LiveFile(".local/share/devin/credentials.toml", root: .devin)
 
     static let agentDevin = ProviderSpec(
         id: "devin", name: "Devin", style: .files,

@@ -187,6 +187,7 @@ extension RPCRuntimeTests {
     func testClaudeShellIntegrationGet() async throws {
         let reply = try await call("claude.shellIntegration.get")
         XCTAssertEqual(result(reply)?["enabled"] as? Bool, false)
+        XCTAssertEqual(result(reply)?["shellIntegrationSupported"] as? Bool, AccountManager.shellIntegrationSupported)
     }
 
     func testDroidMissions() async throws {
