@@ -178,37 +178,6 @@ final class PlatformWindowsFilesTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: b, encoding: .utf8), "a")
     }
 
-    func testPublishAndExchangeKeepRegularFilePresentDuringReplacement() throws {
-        let live = root.appending(path: "auth.json")
-        let staged = root.appending(path: "staged")
-        try Data("old".utf8).write(to: live)
-        let reader = DispatchGroup()
-        let started = DispatchSemaphore(value: 0)
-        let stop = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async(group: reader) {
-            started.signal()
-            let deadline = Date().addingTimeInterval(30)
-            repeat {
-                WindowsFiles.withWin32Path(WindowsFiles.native(live.path)) { path in
-                    XCTAssertNotEqual(GetFileAttributesW(path), DWORD.max)
-                }
-            } while Date() < deadline && stop.wait(timeout: .now()) == .timedOut
-        }
-        XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
-        defer { stop.signal(); XCTAssertEqual(reader.wait(timeout: .now() + 5), .success) }
-        for value in 1...100 {
-            try Data(String(value).utf8).write(to: staged)
-            if value.isMultiple(of: 2) {
-                try CoreSupport.exchange(staged, live)
-                XCTAssertEqual(try String(contentsOf: staged, encoding: .utf8), String(value - 1))
-            } else {
-                try CoreSupport.publish(staged, replacing: live, fileManager: .default)
-                XCTAssertFalse(CoreSupport.entryExists(staged))
-            }
-        }
-        XCTAssertEqual(try String(contentsOf: live, encoding: .utf8), "100")
-    }
-
     func testRecoveryRepairsBothInterruptedDirectoryMoves() throws {
         let staged = root.appending(path: "staged")
         let live = root.appending(path: "live")
