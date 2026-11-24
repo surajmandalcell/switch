@@ -373,7 +373,7 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: result.backup.appending(path: "conflicts/thread").path))
     }
 
-    func testSwitchChangesOnlyAuthAndRejectsAnActiveWriter() async throws {
+    func testSwitchChangesOnlyAuthWhileExistingCodexProcessesContinue() async throws {
         try Data("settings".utf8).write(to: paths.defaultHome.appending(path: "config.toml"))
         let firstSource = root.appending(path: "one")
         let secondSource = root.appending(path: "two")
@@ -391,16 +391,14 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "config.toml")), settings)
 
         let existingProcess = try AccountManager(paths: paths, writerCheck: { _ in .active })
-        await XCTAssertThrowsErrorAsync(try await existingProcess.switchDefault(to: first.account.id)) { error in
-            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
-        }
+        _ = try await existingProcess.switchDefault(to: first.account.id)
         XCTAssertEqual(
             try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")),
-            try Data(contentsOf: second.account.credentialFile)
+            try Data(contentsOf: first.account.credentialFile)
         )
     }
 
-    func testSwitchRejectsAnUnknownWriterAndKeepsRefreshedAuth() async throws {
+    func testSwitchDoesNotConsultWriterStateForNewSessions() async throws {
         let firstSource = root.appending(path: "writer-first")
         let secondSource = root.appending(path: "writer-second")
         try writeAuth(home: firstSource, account: "writer-first", workspace: "workspace")
@@ -413,25 +411,13 @@ final class AccountManagerContractTests: XCTestCase {
         _ = try await setup.switchDefault(to: first.id)
 
         let existingProcess = try AccountManager(paths: paths, writerCheck: { _ in .unknown })
-        await XCTAssertThrowsErrorAsync(try await existingProcess.switchDefault(to: second.id)) { error in
-            XCTAssertEqual(error as? AIManagerError, .writerStateUnknown)
-        }
-
-        let refreshed = try refreshedAuth(account: "writer-first", workspace: "workspace", marker: "new token")
-        let refreshing = try AccountManager(paths: paths, writerCheck: { home in
-            do { try refreshed.write(to: home.appending(path: "auth.json"), options: .atomic) }
-            catch { return .unknown }
-            return .inactive
-        })
-        await XCTAssertThrowsErrorAsync(try await refreshing.switchDefault(to: second.id)) { error in
-            XCTAssertEqual(error as? AIManagerError, .sourceChanged)
-        }
+        _ = try await existingProcess.switchDefault(to: second.id)
 
         let finalStatus = try await setup.status()
-        XCTAssertEqual(finalStatus.defaultAccountID, first.id)
+        XCTAssertEqual(finalStatus.defaultAccountID, second.id)
         XCTAssertEqual(
             try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")),
-            refreshed
+            try Data(contentsOf: second.credentialFile)
         )
     }
 
