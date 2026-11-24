@@ -152,9 +152,7 @@ public struct ManagerPaths: Sendable {
 
 private enum CoreSupportForPaths {
     static func contains(_ child: URL, in parent: URL) -> Bool {
-        let childParts = CoreSupport.canonical(child).pathComponents
-        let parentParts = CoreSupport.canonical(parent).pathComponents
-        return childParts.count >= parentParts.count && Array(childParts.prefix(parentParts.count)) == parentParts
+        CoreSupport.isContained(child, by: parent)
     }
 }
 
@@ -524,6 +522,8 @@ public enum RecoveryConflictChoice: String, Codable, Sendable {
 }
 
 public struct RecoveryItem: Codable, Equatable, Sendable {
+    // Shared JSON files need their original layout as well as the provider-owned member.
+    var previousBytes: Data?
     public var destination: URL
     public var backup: URL?
     public var expectedDigest: String
