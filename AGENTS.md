@@ -25,7 +25,8 @@ tag, and a GitHub Release with notes. The `@smdl/switch` npm CLI ships with the
 same release. At release time, verify the registry version and a fresh package
 install. Keep required signing, notarization, validation, and password or OTP stops.
 Versions shown on the site come from api.samhq.app/v1/releases; the release
-script updates samhq_backend/releases.json.
+script runs samhq_backend/scripts/publish-release.zsh `--no-upload`, which updates and pushes
+releases.json and the Homebrew cask.
 
 Do not execute or push the inherited remote branch-deletion workflow.
 Remove that workflow behavior in G1 before an implementation push.
