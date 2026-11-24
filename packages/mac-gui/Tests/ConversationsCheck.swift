@@ -654,6 +654,14 @@ private final class WheelTestDocument: NSView {
     return failures
   }
 
+  /// Keeps one other core busy for 150 ms and starts the switch 120 ms in, as the clock rise of a real
+  /// input event would (without it a switch after an idle pause ran about 2x slower).
+  static func warmCPU() async {
+    let end = CFAbsoluteTimeGetCurrent() + 0.15
+    Thread.detachNewThread { while CFAbsoluteTimeGetCurrent() < end {} }
+    await pause(120)
+  }
+
   static func pageSwitchTimes() async -> [String] {
     var failures: [String] = []
     let model = AccountViewModel(scenario: .historyStress)
@@ -681,11 +689,16 @@ private final class WheelTestDocument: NSView {
       return []
     }
     var cold: [AIManagerPage: Double] = [:]
+    var unwarmed: [AIManagerPage: [Double]] = [:]
     var warm: [AIManagerPage: [Double]] = [:]
     var parts: [AIManagerPage: (state: Double, layout: Double, render: Double)] = [:]
     let order: [AIManagerPage] = [.accounts, .settings, .maintenance, .conversations, .overview]
+    for warmed in [false, true] {
     for round in 0..<4 {
       for page in order {
+        // A real click raises the CPU clock; a posted notification does not. The warmed pass stands in
+        // for the click with a short busy thread, and the unwarmed (cold) median is printed beside it.
+        if warmed { await warmCPU() }
         let start = CFAbsoluteTimeGetCurrent()
         NotificationCenter.default.post(name: AIManagerNavigation.request, object: page)
         while AIMPlace.visiblePage != page, CFAbsoluteTimeGetCurrent() - start < 3 {
@@ -700,19 +713,28 @@ private final class WheelTestDocument: NSView {
           failures.append("\(page.rawValue): no full-frame bitmap")
         }
         let milliseconds = (CFAbsoluteTimeGetCurrent() - start) * 1_000
-        if round == 0 { cold[page] = milliseconds } else { warm[page, default: []].append(milliseconds) }
-        if round == 1 {
+        if round == 0 {
+          if !warmed { cold[page] = milliseconds }
+        } else if warmed {
+          warm[page, default: []].append(milliseconds)
+        } else {
+          unwarmed[page, default: []].append(milliseconds)
+        }
+        if warmed && round == 1 {
           parts[page] = (state: (selected - start) * 1_000, layout: (laidOut - selected) * 1_000,
             render: (CFAbsoluteTimeGetCurrent() - laidOut) * 1_000)
         }
         await pause(900)
       }
     }
+    }
     for page in order {
       let worst = warm[page]?.max() ?? 0
       let median = warm[page].map { $0.sorted()[$0.count / 2] } ?? 0
+      let coldMedian = unwarmed[page].map { $0.sorted()[$0.count / 2] } ?? 0
       let split = parts[page].map { String(format: " [state %.0f, layout %.0f, render %.0f]", $0.state, $0.layout, $0.render) } ?? ""
-      print(String(format: "PAGE_SWITCH %@ first=%.0f ms median=%.0f ms worst=%.0f ms", page.rawValue, cold[page] ?? 0, median, worst) + split)
+      print(String(format: "PAGE_SWITCH %@ first=%.0f ms median=%.0f ms (cold %.0f ms) worst=%.0f ms", page.rawValue,
+        cold[page] ?? 0, median, coldMedian, worst) + split)
       // A page's cards are a second hosting graph in an AppKit scroll view (about 3 ms per switch),
       // and a loaded Mac moves a median by up to 10 ms.
       let slack = CheckTiming.slack
