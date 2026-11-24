@@ -720,20 +720,18 @@ final class ProviderAccountStoreTests: XCTestCase {
         XCTAssertEqual(try store.defaults()["test-files"], first.id)
     }
 
-    func testOpenReplaysJournalLeftAfterIndexWrite() throws {
+    func testOpenKeepsASwitchWhoseIndexWasSaved() throws {
         let store = try makeStore([filesSpec()])
-        let (first, second) = try seedAB(store)
+        let (_, second) = try seedAB(store)
         let journal = paths.applicationSupport.appending(path: "provider-accounts/pending-switch.json")
         var pending = Data()
         _ = try store.makeDefault(second.id) { pending = try Data(contentsOf: journal) }
-        XCTAssertEqual(try store.defaults()["test-files"], second.id)
         try pending.write(to: journal)
 
         let reopened = try makeStore([filesSpec()])
-        XCTAssertEqual(try reopened.defaults()["test-files"], first.id)
-        XCTAssertEqual(try reopened.accounts().first { $0.id == second.id }?.lastUsedAt, second.lastUsedAt)
-        XCTAssertEqual(try authObject()["id"] as? String, "A")
-        XCTAssertEqual(row("tok", in: userHome), "tk-A")
+        XCTAssertEqual(try reopened.defaults()["test-files"], second.id)
+        XCTAssertEqual(try authObject()["id"] as? String, "B")
+        XCTAssertEqual(row("tok", in: userHome), "tk-B")
         XCTAssertFalse(fileManager.fileExists(atPath: journal.path))
     }
 
@@ -752,15 +750,36 @@ final class ProviderAccountStoreTests: XCTestCase {
 
     func testRecoveryPreservesALaterTokenRefresh() throws {
         let store = try makeStore([filesSpec()])
-        let (_, second) = try seedAB(store)
+        let (first, second) = try seedAB(store)
         let auth = userHome.appending(path: authPath)
         let refreshed = Data(#"{"id":"B","token":"new-token"}"#.utf8)
         XCTAssertThrowsError(try store.makeDefault(second.id) {
             try refreshed.write(to: auth)
             throw AIManagerError.sourceChanged
-        }) { XCTAssertTrue($0.localizedDescription.contains("test-files")) }
-        XCTAssertThrowsError(try makeStore([filesSpec()]))
+        })
         XCTAssertEqual(try Data(contentsOf: auth), refreshed)
+        XCTAssertEqual(try makeStore([filesSpec()]).defaults()["test-files"], first.id)
+    }
+
+    func testOpenNeverRestoresALeftRecordOverANewerLogin() throws {
+        let store = try makeStore([filesSpec()])
+        let (first, second) = try seedAB(store)
+        let journal = paths.applicationSupport.appending(path: "provider-accounts/pending-switch.json")
+        let auth = userHome.appending(path: authPath)
+        var pending = Data()
+        // The process dies after publishing B; later the CLI signs in again.
+        XCTAssertThrowsError(try store.makeDefault(second.id) {
+            pending = try Data(contentsOf: journal)
+            throw AIManagerError.sourceChanged
+        })
+        try pending.write(to: journal)
+        let newer = Data(#"{"id":"C","token":"cli-login"}"#.utf8)
+        try newer.write(to: auth)
+
+        let reopened = try makeStore([filesSpec()])
+        XCTAssertEqual(try Data(contentsOf: auth), newer)
+        XCTAssertEqual(try reopened.defaults()["test-files"], first.id)
+        XCTAssertFalse(fileManager.fileExists(atPath: journal.path))
     }
 
 #if !os(Windows)

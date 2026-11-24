@@ -511,55 +511,60 @@ struct ProviderAccountStore {
         return try loadIndex()
     }
 
+    /// Undoes a provider switch that did not reach its index save. Never writes over a login that changed after the switch:
+    /// a record that is invalid, already committed, or older than the live files is dropped, and every live file stays.
+    /// The outgoing login always stays in its backup file.
     private func recoverPendingSwitch(provider: ProviderID? = nil) throws {
         guard CoreSupport.entryExists(recoveryURL) else { return }
         var name = provider?.rawValue ?? "the pending provider login"
+        func keepLive() throws {
+            try fileManager.removeItem(at: recoveryURL)
+            try syncPaths([root])
+        }
         do {
-            let operation = try decoder.decode(RecoveryOperation.self, from: Data(contentsOf: recoveryURL))
-            guard let previous = operation.previousAccount else {
-                throw AIManagerError.invalidSource("The provider switch recovery record is incomplete.")
-            }
-            let providerID = previous.identity.providerID
+            // `previousAccount` holds the target account as it was before the switch.
+            guard let operation = try? decoder.decode(RecoveryOperation.self, from: Data(contentsOf: recoveryURL)),
+                  let target = operation.previousAccount else { return try keepLive() }
+            let providerID = target.identity.providerID
             name = providerID.rawValue
             guard operation.kind == "switch-provider", let spec = spec(providerID), spec.style == .files,
                   CoreSupport.sameLocation(operation.destination, indexURL),
-                  CoreSupport.sameLocation(operation.source, vaultURL(providerID, previous.id)),
+                  CoreSupport.sameLocation(operation.source, vaultURL(providerID, target.id)),
                   CoreSupport.sameLocation(operation.backup.deletingLastPathComponent(), backupDirectory(providerID)),
-                  CoreSupport.isContained(operation.backup, by: backupDirectory(providerID)),
                   operation.backup.pathExtension == "json",
-                  let items = operation.touchedItems, items.count == spec.files.count else {
-                throw AIManagerError.invalidSource("Invalid switch recovery record.")
+                  let items = operation.touchedItems, items.count == spec.files.count,
+                  zip(spec.files, items).allSatisfy({ file, item in
+                      (try? liveURL(file, home: nil)).map { CoreSupport.sameLocation($0, item.destination) } == true
+                  }),
+                  let outgoing = try? decoder.decode(ProviderCredential.self, from: Data(contentsOf: operation.backup)),
+                  digest(outgoing) == operation.previousDigest,
+                  zip(spec.files, items).allSatisfy({ file, item in
+                      (outgoing.files[file.id].map(CoreSupport.digest) ?? "absent") == item.previousDigest
+                  }) else { return try keepLive() }
+            // The index save is the commit point: once it names the target, the switch stands.
+            // An unreadable index cannot show a commit, so the files still go back first.
+            if let index = try? loadIndex(), index.defaults[providerID.rawValue] == target.id,
+               let saved = index.accounts.first(where: { $0.id == target.id }),
+               operation.previousDefaultAccountID != target.id || saved.lastUsedAt != target.lastUsedAt {
+                return try finishSwitch(spec)
             }
-            for (file, item) in zip(spec.files, items) {
-                let live = CoreSupport.canonical(try liveURL(file, home: nil))
-                guard live.pathComponents.elementsEqual(item.destination.standardizedFileURL.pathComponents, by: equalPathNames) else {
-                    throw AIManagerError.unsafePath("The provider login path has changed.")
-                }
-            }
-            let outgoing = try decoder.decode(ProviderCredential.self, from: Data(contentsOf: operation.backup))
-            guard digest(outgoing) == operation.previousDigest else { throw AIManagerError.sourceChanged }
             let current = try readLive(spec, home: nil, requireReadableRows: true)
-            for (file, item) in zip(spec.files, items) {
-                let live = current.files[file.id]
-                guard (outgoing.files[file.id].map(CoreSupport.digest) ?? "absent") == item.previousDigest else {
-                    throw AIManagerError.invalidSource("The provider file list has changed.")
-                }
-                guard live != outgoing.files[file.id] else { continue }
-                guard (live.map(CoreSupport.digest) ?? "absent") == item.expectedDigest else {
-                    throw AIManagerError.operationFailed("\(file.path) changed after the switch. Its current login was preserved.")
-                }
-            }
+            var restore: [(LiveFile, RecoveryItem)] = []
             for (file, item) in zip(spec.files, items) where current.files[file.id] != outgoing.files[file.id] {
-                if let key = file.key,
-                   try restoreSharedFile(item, file: file, key: key) { continue }
+                // Anything other than the bytes Switch wrote is a newer login, such as a CLI sign-in or token refresh.
+                guard (current.files[file.id].map(CoreSupport.digest) ?? "absent") == item.expectedDigest else { return try keepLive() }
+                restore.append((file, item))
+            }
+            for (file, item) in restore {
+                if let key = file.key, try restoreSharedFile(item, file: file, key: key) { continue }
                 try writeLive(spec, outgoing, home: nil, restoringSnapshot: true, only: file.id)
             }
             var index = try loadIndex()
-            let position = try position(previous.id, in: index)
+            let position = try position(target.id, in: index)
             if index.defaults[providerID.rawValue] != operation.previousDefaultAccountID
-                || index.accounts[position].lastUsedAt != previous.lastUsedAt {
+                || index.accounts[position].lastUsedAt != target.lastUsedAt {
                 index.defaults[providerID.rawValue] = operation.previousDefaultAccountID
-                index.accounts[position].lastUsedAt = previous.lastUsedAt
+                index.accounts[position].lastUsedAt = target.lastUsedAt
                 try writeIndex(index)
             }
             try finishSwitch(spec)
