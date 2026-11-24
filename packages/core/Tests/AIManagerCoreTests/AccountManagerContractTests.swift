@@ -23,7 +23,7 @@ final class AccountManagerContractTests: XCTestCase {
     private let fm = FileManager.default
 
     override func setUpWithError() throws {
-        root = fm.temporaryDirectory.appending(path: "AIManagerCoreTests-\(UUID().uuidString)")
+        root = testTemporaryDirectory.appending(path: "AIManagerCoreTests-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         paths = .init(
             applicationSupport: root.appending(path: "support"),
@@ -31,7 +31,8 @@ final class AccountManagerContractTests: XCTestCase {
             defaultHome: root.appending(path: "user/.codex"),
             sharedRoot: root.appending(path: "user/.codex"),
             orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: TestCLI.trueExecutable
+            codexExecutable: TestCLI.trueExecutable,
+            isolationRoot: root
         )
         try fm.createDirectory(at: paths.defaultHome, withIntermediateDirectories: true)
     }
@@ -372,7 +373,7 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: result.backup.appending(path: "conflicts/thread").path))
     }
 
-    func testSwitchChangesOnlyAuthWhileExistingCodexProcessesContinue() async throws {
+    func testSwitchChangesOnlyAuthAndRejectsAnActiveWriter() async throws {
         try Data("settings".utf8).write(to: paths.defaultHome.appending(path: "config.toml"))
         let firstSource = root.appending(path: "one")
         let secondSource = root.appending(path: "two")
@@ -390,14 +391,16 @@ final class AccountManagerContractTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: paths.defaultHome.appending(path: "config.toml")), settings)
 
         let existingProcess = try AccountManager(paths: paths, writerCheck: { _ in .active })
-        _ = try await existingProcess.switchDefault(to: first.account.id)
+        await XCTAssertThrowsErrorAsync(try await existingProcess.switchDefault(to: first.account.id)) { error in
+            XCTAssertEqual(error as? AIManagerError, .activeCodexProcesses)
+        }
         XCTAssertEqual(
             try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")),
-            try Data(contentsOf: first.account.credentialFile)
+            try Data(contentsOf: second.account.credentialFile)
         )
     }
 
-    func testSwitchDoesNotConsultWriterStateForNewSessions() async throws {
+    func testSwitchRejectsAnUnknownWriterAndKeepsRefreshedAuth() async throws {
         let firstSource = root.appending(path: "writer-first")
         let secondSource = root.appending(path: "writer-second")
         try writeAuth(home: firstSource, account: "writer-first", workspace: "workspace")
@@ -410,13 +413,25 @@ final class AccountManagerContractTests: XCTestCase {
         _ = try await setup.switchDefault(to: first.id)
 
         let existingProcess = try AccountManager(paths: paths, writerCheck: { _ in .unknown })
-        _ = try await existingProcess.switchDefault(to: second.id)
+        await XCTAssertThrowsErrorAsync(try await existingProcess.switchDefault(to: second.id)) { error in
+            XCTAssertEqual(error as? AIManagerError, .writerStateUnknown)
+        }
+
+        let refreshed = try refreshedAuth(account: "writer-first", workspace: "workspace", marker: "new token")
+        let refreshing = try AccountManager(paths: paths, writerCheck: { home in
+            do { try refreshed.write(to: home.appending(path: "auth.json"), options: .atomic) }
+            catch { return .unknown }
+            return .inactive
+        })
+        await XCTAssertThrowsErrorAsync(try await refreshing.switchDefault(to: second.id)) { error in
+            XCTAssertEqual(error as? AIManagerError, .sourceChanged)
+        }
 
         let finalStatus = try await setup.status()
-        XCTAssertEqual(finalStatus.defaultAccountID, second.id)
+        XCTAssertEqual(finalStatus.defaultAccountID, first.id)
         XCTAssertEqual(
             try Data(contentsOf: paths.defaultHome.appending(path: "auth.json")),
-            try Data(contentsOf: second.credentialFile)
+            refreshed
         )
     }
 
