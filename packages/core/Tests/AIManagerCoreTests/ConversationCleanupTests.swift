@@ -349,13 +349,14 @@ final class ConversationCleanupTests: XCTestCase {
         }
         try CoreSupport.atomicWrite(Data("cache".utf8), to: user.appending(path: "Library/Caches/claude-cli-nodejs/c"), fileManager: files)
         let items = try scan(.claude, home: claude).categories.flatMap(\.selectable)
-        XCTAssertEqual(items.count, 2)
+        let mac = ProviderOS.current == .macOS
+        XCTAssertEqual(items.count, mac ? 2 : 1)
         let cleanup = ConversationCleanup(home: claude, userHome: user)
         let plan = try cleanup.review(items)
         let batch = try cleanup.moveToTrash(plan)
         XCTAssertFalse(CoreSupport.entryExists(claude.appending(path: "projects/-Tmp-app/s1.jsonl")))
         XCTAssertFalse(CoreSupport.entryExists(claude.appending(path: "projects/-Tmp-app/s1")))
-        XCTAssertFalse(CoreSupport.entryExists(user.appending(path: "Library/Caches/claude-cli-nodejs")))
+        XCTAssertEqual(CoreSupport.entryExists(user.appending(path: "Library/Caches/claude-cli-nodejs")), !mac)
         XCTAssertEqual(try cleanup.batches().first?.id, batch.id)
         try cleanup.restore(batch.id)
         XCTAssertTrue(CoreSupport.entryExists(claude.appending(path: "projects/-Tmp-app/s1/tool-results/r")))

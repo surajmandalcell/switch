@@ -395,6 +395,47 @@ final class ProviderAccountStoreTests: XCTestCase {
 
     // MARK: Sign-in
 
+    func testWindowsGeminiStagingLeavesTheLiveProfileAlone() throws {
+        let live = userHome.appending(path: ".gemini/oauth_creds.json")
+        let original = Data(#"{"access_token":"synthetic-live"}"#.utf8)
+        try fileManager.createDirectory(at: live.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try original.write(to: live)
+        let spec = ProviderSpec(
+            id: "gemini", name: "Gemini CLI", style: .files, files: ProviderCatalog.geminiCLI.files,
+            login: ["true"], usage: { _ in ProviderUsage() })
+        let store = try ProviderAccountStore(paths: paths, environment: [
+            "PATH": TestCLI.searchPath, "HOME": userHome.path, "UserProfile": userHome.path,
+            "AppData": userHome.path, "LOCALAPPDATA": userHome.path, "Gemini_Cli_Home": userHome.path,
+            "XDG_CONFIG_HOME": userHome.path,
+        ], specs: [spec], os: .Windows)
+        let start = try store.startLogin(spec.id)
+        let env = start.launchSpec.environment
+        let home = URL(fileURLWithPath: try XCTUnwrap(env["HOME"]))
+        XCTAssertEqual(env["USERPROFILE"], home.path)
+        XCTAssertEqual(env["APPDATA"], home.appending(path: "AppData/Roaming").path)
+        XCTAssertEqual(env["LOCALAPPDATA"], home.appending(path: "AppData/Local").path)
+        XCTAssertEqual(env["GEMINI_CLI_HOME"], home.path)
+        XCTAssertEqual(env["XDG_CONFIG_HOME"], home.appending(path: ".config").path)
+        XCTAssertNil(env["Gemini_Cli_Home"])
+        XCTAssertNil(env["UserProfile"])
+        let keys = TerminalLaunch.signInExportKeys(for: .geminiCLI)
+        let exported = env.filter { keys.contains($0.key) }
+        XCTAssertEqual(exported["GEMINI_CLI_HOME"], home.path)
+        XCTAssertEqual(exported["USERPROFILE"], home.path)
+        XCTAssertEqual(exported["APPDATA"], env["APPDATA"])
+        XCTAssertEqual(exported["LOCALAPPDATA"], env["LOCALAPPDATA"])
+        let script = try XCTUnwrap(TerminalLaunch.cmdScript(command: ["gemini.cmd"], exports: exported, workingDirectory: nil))
+        for key in ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "GEMINI_CLI_HOME"] {
+            XCTAssertTrue(script.contains("set \"\(key)=\(try XCTUnwrap(env[key]))\""))
+        }
+        let staged = URL(fileURLWithPath: try XCTUnwrap(env["GEMINI_CLI_HOME"])).appending(path: ".gemini")
+        try fileManager.createDirectory(at: staged, withIntermediateDirectories: true)
+        try Data(#"{"access_token":"synthetic-staged"}"#.utf8).write(to: staged.appending(path: "oauth_creds.json"))
+        try store.cancelLogin(start.session.id)
+        XCTAssertFalse(fileManager.fileExists(atPath: home.path))
+        XCTAssertEqual(try Data(contentsOf: live), original)
+    }
+
     func testLoginStartCheckAndCancelUseAPrivateTempHome() throws {
         let store = try makeStore([filesSpec()])
         let provider = ProviderID(rawValue: "test-files")
@@ -784,6 +825,7 @@ final class ProviderAccountStoreTests: XCTestCase {
     }
 
     func testCursorSwitchRemovesAbsentOwnedRowsAndPreservesConversationInBothDirections() async throws {
+        try XCTSkipUnless(ProviderOS.current == .macOS)
         let manager = try makeManager([ProviderCatalog.cursor])
         let database = "Library/Application Support/Cursor/User/globalStorage/state.vscdb"
         let original = try writeContinuityFixture("Library/Application Support/Cursor/User/workspaceStorage/project/conversation.json")
@@ -806,6 +848,7 @@ final class ProviderAccountStoreTests: XCTestCase {
     }
 
     func testKiroSwitchRemovesTheOtherLoginMethodAndPreservesConversationInBothDirections() async throws {
+        try XCTSkipUnless(ProviderOS.current == .macOS)
         let manager = try makeManager([ProviderCatalog.agentKiro])
         let database = "Library/Application Support/kiro-cli/data.sqlite3"
         let original = try writeContinuityFixture("Library/Application Support/kiro-cli/conversation-original.json")

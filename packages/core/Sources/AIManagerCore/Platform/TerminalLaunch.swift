@@ -23,6 +23,17 @@ public enum TerminalLaunch {
         "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
     ]
 
+    public static func signInExportKeys(for provider: ProviderID) -> [String] {
+        let catalog = ProviderCatalog.spec(provider)
+        let profileKeys = catalog?.login == nil ? [] : [
+            "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+            "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME",
+        ]
+        return ["HOME", "FACTORY_HOME_OVERRIDE", "FACTORY_DISABLE_KEYRING"] + profileKeys
+            + (catalog?.files.compactMap(\.homeEnv) ?? [])
+            + (catalog?.loginEnv.keys.sorted() ?? [])
+    }
+
     /// POSIX single quotes: `it's` becomes `'it'\''s'`.
     static func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 

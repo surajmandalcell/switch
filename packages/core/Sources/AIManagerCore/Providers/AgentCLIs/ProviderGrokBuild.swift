@@ -213,10 +213,7 @@ enum GrokBuildUsage {
     // MARK: Local spend
 
     private static func grokHome() -> URL {
-        if let home = ProcessInfo.processInfo.environment["GROK_HOME"], !home.isEmpty {
-            return URL(fileURLWithPath: (home as NSString).expandingTildeInPath)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".grok")
+        (ProviderPaths.managerPaths ?? ManagerPaths.environment()).grokHome
     }
 
     /// Today, Yesterday and Last 30 days from completed turns in `sessions/**/updates.jsonl`. Grok records
@@ -224,6 +221,7 @@ enum GrokBuildUsage {
     /// ponytail: re-reads every session log touched in the last 31 days on each refresh (files over
     /// 200 MB are skipped); add an incremental cache if a refresh gets slow.
     static func localSpend(sessions: URL, now: Date = Date(), calendar: Calendar = .current) -> MajorsSpend.Report? {
+        guard ProviderPaths.current.allowsRead(sessions) else { return nil }
         let since = calendar.date(byAdding: .day, value: -30, to: calendar.startOfDay(for: now)) ?? now
         guard let walker = FileManager.default.enumerator(
             at: sessions, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]) else { return nil }
