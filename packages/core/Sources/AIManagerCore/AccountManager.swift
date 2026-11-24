@@ -841,11 +841,6 @@ public actor AccountManager {
             if selected.identity.providerID == .droid {
                 return try switchDroidAccount(to: accountID, allowRunning: allowRunningDroid)
             }
-            let home = selected.identity.providerID == .grokBuild ? paths.grokHome : paths.defaultHome
-            let auth = home.appending(path: "auth.json")
-            let digest = try credentialFingerprintIfPresent(auth)
-            try await ensureWritersInactive([home])
-            guard try credentialFingerprintIfPresent(auth) == digest else { throw AIManagerError.sourceChanged }
             if selected.identity.providerID == .grokBuild {
                 try grokProvider.validateManagedCredential(selected)
                 return try performGrokSwitch(to: accountID)
