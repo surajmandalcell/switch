@@ -142,7 +142,12 @@ public actor AccountManager {
         self.providerSpecs = providerSpecs
         self.providerStore = try ProviderAccountStore(paths: paths, fileManager: fileManager,
                                                       specs: providerSpecs)
-        self.writerCheck = writerCheck ?? { home in await AccountManager.systemWriterCheck(home: home) }
+        self.writerCheck = writerCheck ?? { home in
+            if CoreSupport.sameLocation(home, paths.grokHome) {
+                return ToolWriterProbe.check(tool: .grok, home: home)
+            }
+            return await AccountManager.systemWriterCheck(home: home)
+        }
         self.faultInjector = faultInjector
         self.verificationTimeout = verificationTimeout
         self.capacityCheck = capacityCheck ?? { AccountManager.systemCapacity(at: $0) }
@@ -836,6 +841,11 @@ public actor AccountManager {
             if selected.identity.providerID == .droid {
                 return try switchDroidAccount(to: accountID, allowRunning: allowRunningDroid)
             }
+            let home = selected.identity.providerID == .grokBuild ? paths.grokHome : paths.defaultHome
+            let auth = home.appending(path: "auth.json")
+            let digest = try credentialFingerprintIfPresent(auth)
+            try await ensureWritersInactive([home])
+            guard try credentialFingerprintIfPresent(auth) == digest else { throw AIManagerError.sourceChanged }
             if selected.identity.providerID == .grokBuild {
                 try grokProvider.validateManagedCredential(selected)
                 return try performGrokSwitch(to: accountID)
@@ -2831,7 +2841,11 @@ extension AccountManager {
             let canonical = CoreSupport.canonical(home).path
             guard checked.insert(canonical).inserted else { continue }
             switch await writerCheck(home) {
-            case .active: throw AIManagerError.activeCodexProcesses
+            case .active:
+                if CoreSupport.sameLocation(home, paths.grokHome) {
+                    throw AIManagerError.operationFailed("Grok is writing to its folder. Close it and try again.")
+                }
+                throw AIManagerError.activeCodexProcesses
             case .unknown: throw AIManagerError.writerStateUnknown
             case .inactive: break
             }
@@ -3478,12 +3492,11 @@ extension AccountManager {
             try finishOperation(&operation)
             return .init(accountID: accountID, backup: backup, previousAccountID: accountID)
         }
-        guard try credentialFingerprintIfPresent(defaultAuth) == outgoingFileDigest else {
-            throw AIManagerError.sourceChanged
-        }
         operation.expectedDigest = incomingInspection.digest
         try saveOperation(operation)
-        try CoreSupport.atomicWrite(incomingInspection.data, to: defaultAuth, fileManager: fileManager)
+        try CoreSupport.atomicWrite(incomingInspection.data, to: defaultAuth, fileManager: fileManager) {
+            guard try credentialFingerprintIfPresent(defaultAuth) == outgoingFileDigest else { throw AIManagerError.sourceChanged }
+        }
         try faultInjector(.afterDefaultCredentialPublication)
         operation.phase = .published
         try saveOperation(operation)
@@ -3643,12 +3656,11 @@ extension AccountManager {
                 backup: backup,
                 previousAccountID: accountID)
         }
-        guard try credentialFingerprintIfPresent(liveAuth) == outgoingFileDigest else {
-            throw AIManagerError.sourceChanged
-        }
         operation.expectedDigest = incomingInspection.digest
         try saveOperation(operation)
-        try CoreSupport.atomicWrite(incomingInspection.data, to: liveAuth, fileManager: fileManager)
+        try CoreSupport.atomicWrite(incomingInspection.data, to: liveAuth, fileManager: fileManager) {
+            guard try credentialFingerprintIfPresent(liveAuth) == outgoingFileDigest else { throw AIManagerError.sourceChanged }
+        }
         try faultInjector(.afterDefaultCredentialPublication)
         operation.phase = .published
         try saveOperation(operation)
@@ -4013,9 +4025,13 @@ extension AccountManager {
                 try copyPortable(child, to: destination.appending(path: child.lastPathComponent), visited: visited, depth: depth + 1)
             }
         } else if values.isRegularFile == true {
-            try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
+            try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager, preserveExistingACL: true)
+#if os(Windows)
+            _ = try CoreSupport.copyHashing(source, to: destination)
+#else
             try fileManager.copyItem(at: source, to: destination)
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+#endif
         } else {
             throw AIManagerError.unsafePath("special file cannot be copied")
         }
@@ -4069,7 +4085,7 @@ extension AccountManager {
         let expected = try treeDigest(temporary)
         operation.touchedItems![operation.touchedItems!.count - 1].expectedDigest = expected
         try saveOperation(operation)
-        try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
+        try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager, preserveExistingACL: true)
         try CoreSupport.publish(temporary, replacing: destination, fileManager: fileManager)
     }
 
@@ -4531,6 +4547,9 @@ extension AccountManager {
         _ operation: RecoveryOperation,
         choice: RecoveryConflictChoice
     ) throws -> RecoveryResult {
+#if os(Windows)
+        try recoverInterruptedExchanges(operation)
+#endif
         if operation.kind == "delete-account" {
             return try resolveDeleteAccountConflict(operation, choice: choice)
         }
@@ -4551,7 +4570,7 @@ extension AccountManager {
             for target in targets {
                 if let backup = target.backup {
                     try CoreSupport.privateDirectory(
-                        target.destination.deletingLastPathComponent(), fileManager: fileManager)
+                        target.destination.deletingLastPathComponent(), fileManager: fileManager, preserveExistingACL: true)
                     let staged = target.destination.deletingLastPathComponent()
                         .appending(path: ".\(target.destination.lastPathComponent).\(operation.id.uuidString).recovery")
                     if CoreSupport.entryExists(staged) { try fileManager.removeItem(at: staged) }
@@ -4947,7 +4966,31 @@ extension AccountManager {
         }
     }
 
+#if os(Windows)
+    private func recoverInterruptedExchanges(_ operation: RecoveryOperation) throws {
+        for target in try recoveryTargets(operation) {
+            let destination = target.destination
+            guard CoreSupport.entryExists(WindowsFiles.aside(for: destination)) else { continue }
+            let stage: URL
+            if operation.phase == .conflicted {
+                stage = destination.deletingLastPathComponent()
+                    .appending(path: ".\(destination.lastPathComponent).\(operation.id.uuidString).recovery")
+            } else if ["import", "import-grok"].contains(operation.kind),
+                      CoreSupport.sameLocation(destination, operation.destination) {
+                stage = paths.applicationSupport.appending(path: "staging/\(operation.id.uuidString)/home")
+            } else {
+                stage = destination.deletingLastPathComponent()
+                    .appending(path: ".\(destination.lastPathComponent).\(operation.id.uuidString).stage")
+            }
+            try WindowsFiles.recoverExchange(stage, destination)
+        }
+    }
+#endif
+
     private func recoverOperation(_ operation: RecoveryOperation) throws -> RecoveryResult {
+#if os(Windows)
+        try recoverInterruptedExchanges(operation)
+#endif
         if operation.kind == "usage-credential-refresh" {
             return try recoverUsageCredentialRefresh(operation)
         }
