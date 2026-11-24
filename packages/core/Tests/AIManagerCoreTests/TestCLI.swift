@@ -1,5 +1,13 @@
 import Foundation
 
+/// The launcher can keep synthetic homes under its isolated test root.
+var testTemporaryDirectory: URL {
+    if let root = ProcessInfo.processInfo.environment["AI_MANAGER_ROOT"], !root.isEmpty {
+        return URL(fileURLWithPath: root, isDirectory: true)
+    }
+    return FileManager.default.temporaryDirectory
+}
+
 /// Fake command-line tools for tests.
 enum TestCLI {
 #if os(Windows)
