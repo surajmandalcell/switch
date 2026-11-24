@@ -23,7 +23,7 @@ final class AccountManagerContractTests: XCTestCase {
     private let fm = FileManager.default
 
     override func setUpWithError() throws {
-        root = fm.temporaryDirectory.appending(path: "AIManagerCoreTests-\(UUID().uuidString)")
+        root = testTemporaryDirectory.appending(path: "AIManagerCoreTests-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         paths = .init(
             applicationSupport: root.appending(path: "support"),
@@ -31,7 +31,8 @@ final class AccountManagerContractTests: XCTestCase {
             defaultHome: root.appending(path: "user/.codex"),
             sharedRoot: root.appending(path: "user/.codex"),
             orcaAccountsRoot: root.appending(path: "orca"),
-            codexExecutable: TestCLI.trueExecutable
+            codexExecutable: TestCLI.trueExecutable,
+            isolationRoot: root
         )
         try fm.createDirectory(at: paths.defaultHome, withIntermediateDirectories: true)
     }
