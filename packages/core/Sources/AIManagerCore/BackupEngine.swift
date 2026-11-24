@@ -77,6 +77,7 @@ extension BackupSet {
         copy.source.home = BackupIO.real(source.home)
         copy.destination = BackupIO.real(destination)
         copy.profiles = profiles.mapValues(BackupIO.real)
+        copy.items = items.map { BackupItem(normalizedPathSeparators($0.path), isLogin: $0.isLogin) }
         return copy
     }
 }
@@ -115,7 +116,7 @@ public enum BackupPresets {
     }
 
     public static func isLogin(_ path: String) -> Bool {
-        path.split(separator: "/").contains { component in
+        normalizedPathSeparators(path).split(separator: "/").contains { component in
             let name = component.lowercased()
             return ["auth.json", ".credentials.json", "oauth_creds.json", "google_accounts.json", ".claude.json", "opencode.db"].contains(name)
                 || name.hasPrefix("auth.v2.") || name.hasSuffix(".key") || name.contains("keychain")
@@ -269,10 +270,13 @@ public actor BackupEngine {
 private enum BackupIO {
     static let fm = FileManager.default
     static func validate(_ set: BackupSet) throws {
-        guard !set.name.isEmpty, set.name != ".", set.name != "..", !set.name.contains("/"),
-              set.keep > 0, set.items.allSatisfy({ safePath($0.path) }),
+        func folderName(_ name: String) -> Bool {
+            CoreSupport.safeRelativePath(name) && !normalizedPathSeparators(name).contains("/")
+        }
+        guard folderName(set.name), set.keep > 0, set.items.allSatisfy({ CoreSupport.safeRelativePath($0.path) }),
               set.source.home.isFileURL, set.destination.isFileURL else { throw BackupError.unsafe("invalid backup set") }
-        guard set.profiles.allSatisfy({ !$0.key.isEmpty && !$0.key.contains("/") && $0.key != "." && $0.key != ".." && $0.value.isFileURL })
+        guard set.profiles.allSatisfy({ folderName($0.key) && $0.value.isFileURL }),
+              Set(set.profiles.keys.map(backupPathKey)).count == set.profiles.count
         else { throw BackupError.unsafe("invalid profile folder") }
         for home in [set.source.home] + Array(set.profiles.values) {
             guard !CoreSupport.isContained(set.destination, by: home),
@@ -284,34 +288,42 @@ private enum BackupIO {
     /// One folder to copy from: the set's own home (empty prefix) or a profile home (its files sit under `prefix` in a snapshot).
     typealias Root = (prefix: String, home: URL, items: [BackupItem])
     static func roots(_ set: BackupSet) -> [Root] {
-        let own = set.items.filter { !$0.path.hasPrefix(BackupSet.profilePrefix + "/") }
+        let own = set.items.filter { !selected($0.path, items: [BackupSet.profilePrefix]) }
         var result: [Root] = [("", set.source.home, own)]
         for name in set.profiles.keys.sorted() {
             let prefix = BackupSet.profilePrefix + "/" + name
-            let items = set.items.filter { $0.path.hasPrefix(prefix + "/") }
-                .map { BackupItem(String($0.path.dropFirst(prefix.count + 1)), isLogin: $0.isLogin) }
+            let items = set.items.filter { selected($0.path, items: [prefix]) }
+                .compactMap { item -> BackupItem? in
+                    let parts = item.path.split(separator: "/", maxSplits: 2)
+                    guard parts.count == 3 else { return nil }
+                    return BackupItem(String(parts[2]), isLogin: item.isLogin)
+                }
             result.append((prefix, set.profiles[name]!, items))
         }
         return result
     }
     /// Where a stored path lives on disk, or nil when it belongs to a profile this set no longer knows.
-    static func location(_ set: BackupSet, _ path: String) -> URL? {
-        let marker = BackupSet.profilePrefix + "/"
-        guard path == BackupSet.profilePrefix || path.hasPrefix(marker) else { return set.source.home.appending(path: path) }
-        let parts = path.dropFirst(marker.count).split(separator: "/", maxSplits: 1).map(String.init)
-        guard parts.count == 2, let home = set.profiles[parts[0]] else { return nil }
-        return home.appending(path: parts[1])
+    static func location(_ set: BackupSet, _ path: String, destination: URL? = nil) throws -> URL? {
+        guard CoreSupport.safeRelativePath(path) else { throw BackupError.unsafe(path) }
+        var home = destination ?? set.source.home
+        var relative = path
+        if destination == nil, selected(path, items: [BackupSet.profilePrefix]) {
+            let parts = path.split(separator: "/", maxSplits: 2)
+            guard parts.count == 3, let profile = set.profiles.first(where: { equalPathNames($0.key, String(parts[1])) })
+            else { return nil }
+            home = profile.value
+            relative = String(parts[2])
+        }
+        let target = home.appending(path: relative)
+        guard CoreSupport.isContained(target, by: home) else { throw BackupError.unsafe(path) }
+        return target
     }
     /// A chosen group such as "_profiles" stands for the items below it, so a safety copy covers them.
     static func expand(_ paths: [String], in set: BackupSet) -> [String] {
         paths.flatMap { path -> [String] in
-            let below = set.items.map(\.path).filter { $0.hasPrefix(path + "/") && path.hasPrefix(BackupSet.profilePrefix) }
+            let below = set.items.map(\.path).filter { selected($0, items: [path]) && selected(path, items: [BackupSet.profilePrefix]) }
             return below.isEmpty ? [path] : below
         }
-    }
-    static func safePath(_ path: String) -> Bool {
-        CoreSupport.safeRelativePath(path) && !path.contains("\0")
-            && !path.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0.isEmpty || $0 == "." })
     }
     // Check every ancestor, including broken links. Traversal never crosses a link.
     // realpath on the longest existing prefix; the missing tail is appended unchanged.
@@ -441,9 +453,16 @@ private enum BackupIO {
         let url = folder.appending(path: BackupEngine.manifestName)
         guard CoreSupport.entryExists(url) else { return nil }
         try noLinks(url, leafMayBeLink: false)
-        let manifest = try JSONDecoder().decode(BackupManifest.self, from: Data(contentsOf: url))
-        guard manifest.setID == setID, manifest.entries.allSatisfy({ safePath($0.path) }),
-              Set(manifest.entries.map(\.path)).count == manifest.entries.count else { throw BackupError.unsafe("invalid manifest") }
+        var manifest = try JSONDecoder().decode(BackupManifest.self, from: Data(contentsOf: url))
+        guard manifest.setID == setID else { throw BackupError.unsafe("invalid manifest") }
+        var seen = Set<String>()
+        for index in manifest.entries.indices {
+            let path = normalizedPathSeparators(manifest.entries[index].path)
+            guard CoreSupport.safeRelativePath(path), seen.insert(backupPathKey(path)).inserted else {
+                throw BackupError.unsafe("invalid manifest")
+            }
+            manifest.entries[index].path = path
+        }
         return BackupSnapshot(folder: folder, manifest: manifest)
     }
     static func list(_ set: BackupSet) throws -> [BackupSnapshot] {
@@ -462,7 +481,11 @@ private enum BackupIO {
         }
     }
     static func selected(_ path: String, items: [String]) -> Bool {
-        items.contains { path == $0 || path.hasPrefix($0 + "/") }
+        let parts = path.split(separator: "/")
+        return items.contains { item in
+            let expected = item.split(separator: "/")
+            return expected.count <= parts.count && zip(parts, expected).allSatisfy { equalPathNames(String($0), String($1)) }
+        }
     }
     static func walk(_ home: URL, items: [BackupItem], includeLogins: Bool,
                      visit: (String, URL, stat) throws -> Void, skipped: (String) -> Void) throws {
@@ -471,6 +494,7 @@ private enum BackupIO {
         func descend(_ path: String) throws {
             try Task.checkCancellation()
             guard seen.insert(path).inserted, includeLogins || !BackupPresets.isLogin(path) else { return }
+            guard CoreSupport.safeRelativePath(path) else { skipped(path); return }
             let url = home.appending(path: path)
             do {
                 try noLinks(url, leafMayBeLink: true)
@@ -655,19 +679,19 @@ private enum BackupIO {
     }
     static func restore(_ snapshot: BackupSnapshot, set: BackupSet, items: [String]?, destination: URL?,
                         progress: (@Sendable (BackupProgress) -> Void)?) throws -> BackupRestoreResult {
-        guard snapshot.folder.deletingLastPathComponent().standardizedFileURL.path == root(set).standardizedFileURL.path,
+        guard CoreSupport.sameLocation(snapshot.folder.deletingLastPathComponent(), root(set)),
               !snapshot.folder.lastPathComponent.hasPrefix("."), let stored = try load(snapshot.folder, setID: set.id) else {
             throw BackupError.unsafe("snapshot does not belong to this set")
         }
         if stored.manifest.promptsOnly == true, destination == nil {
             throw BackupError.unsafe("prompt backups must be restored into a folder")
         }
-        let paths = items ?? (stored.manifest.promptsOnly == true ? ["prompts"] : set.items.filter { set.includeLogins || !$0.isLogin }.map(\.path))
-        guard paths.allSatisfy(safePath) else { throw BackupError.unsafe("invalid restore selection") }
+        let paths = items?.map(normalizedPathSeparators) ?? (stored.manifest.promptsOnly == true ? ["prompts"] : set.items.filter { set.includeLogins || !$0.isLogin }.map(\.path))
+        guard paths.allSatisfy(CoreSupport.safeRelativePath) else { throw BackupError.unsafe("invalid restore selection") }
         // Into a folder, a profile's files keep their stored path. In place, they go back to their profile home (or are skipped when it is gone).
-        func place(_ path: String) -> URL? { destination.map { $0.appending(path: path) } ?? location(set, path) }
-        let entries = stored.manifest.entries.filter {
-            selected($0.path, items: paths) && (set.includeLogins || !BackupPresets.isLogin($0.path)) && place($0.path) != nil
+        func place(_ path: String) throws -> URL? { try location(set, path, destination: destination) }
+        let entries = try stored.manifest.entries.filter {
+            try selected($0.path, items: paths) && (set.includeLogins || !BackupPresets.isLogin($0.path)) && place($0.path) != nil
         }
         let homes = destination.map { [$0] } ?? [set.source.home] + set.profiles.keys.sorted().map { set.profiles[$0]! }
         for targetHome in homes {
@@ -680,8 +704,12 @@ private enum BackupIO {
         // Verify the complete selection before changing any current file.
         for entry in entries {
             try Task.checkCancellation()
-            let source = stored.folder.appending(path: "files/" + entry.path)
+            let files = stored.folder.appending(path: "files")
+            let source = files.appending(path: entry.path)
             try noLinks(source, leafMayBeLink: entry.kind == .symlink)
+            // A stored link is copied by name. Reading that name never follows its target.
+            guard CoreSupport.isContained(entry.kind == .symlink ? source.deletingLastPathComponent() : source, by: files)
+            else { throw BackupError.unsafe(entry.path) }
             let info = try metadata(source)
             let kind = info.st_mode & S_IFMT
             guard (entry.kind == .file && kind == S_IFREG) || (entry.kind == .directory && kind == S_IFDIR)
@@ -697,30 +725,30 @@ private enum BackupIO {
             safetySet.promptsOnly = false
             safetySet.items = expand(paths, in: set).map { BackupItem($0) }
             safety = try self.snapshot(safetySet, safety: true, progress: nil)
-            guard safety!.manifest.skipped.allSatisfy({ location(set, $0).map { !CoreSupport.entryExists($0) } ?? true }) else {
+            guard try safety!.manifest.skipped.allSatisfy({ try location(set, $0).map { !CoreSupport.entryExists($0) } ?? true }) else {
                 throw BackupError.unsafe("safety snapshot could not preserve current files")
             }
-            let restoredPaths = Set(entries.map(\.path))
+            let restoredPaths = Set(entries.map { backupPathKey($0.path) })
             for root in roots(set) {
                 try walk(root.home, items: root.items, includeLogins: set.includeLogins, visit: { relative, _, info in
                     let path = root.prefix.isEmpty ? relative : root.prefix + "/" + relative
-                    if info.st_mode & S_IFMT != S_IFDIR && !restoredPaths.contains(path) { extras.append(path) }
+                    if info.st_mode & S_IFMT != S_IFDIR && !restoredPaths.contains(backupPathKey(path)) { extras.append(path) }
                 }, skipped: { _ in })
             }
         }
-        for targetHome in homes { try CoreSupport.privateDirectory(targetHome, fileManager: fm) }
+        for targetHome in homes { try CoreSupport.privateDirectory(targetHome, fileManager: fm, preserveExistingACL: true) }
         var count = 0
         var bytes: Int64 = 0
         for entry in entries.sorted(by: { $0.path < $1.path }) {
             try Task.checkCancellation()
-            let target = place(entry.path)!
+            let target = try place(entry.path)!
             try noLinks(target, leafMayBeLink: true)
             if entry.kind == .directory {
                 try noLinks(target, leafMayBeLink: false)
-                try CoreSupport.privateDirectory(target, fileManager: fm)
+                try CoreSupport.privateDirectory(target, fileManager: fm, preserveExistingACL: true)
                 continue
             }
-            try CoreSupport.privateDirectory(target.deletingLastPathComponent(), fileManager: fm)
+            try CoreSupport.privateDirectory(target.deletingLastPathComponent(), fileManager: fm, preserveExistingACL: true)
             if CoreSupport.entryExists(target), try metadata(target).st_mode & S_IFMT == S_IFDIR {
                 throw BackupError.unsafe("restoring a file would remove a current directory")
             }
