@@ -40,7 +40,8 @@ esac
 source_snapshot="$output_path/source-snapshot"
 mkdir -p "$source_snapshot"
 for source in "$repo_root"/packages/mac-gui/Sources/AIManagerMacGUI/*.swift; do
-  if [[ "$(basename "$source")" != "AIManagerApp.swift" ]]; then
+  # CrashReports.swift needs IndieCrumb and only AIManagerApp.swift calls it.
+  if [[ "$(basename "$source")" != "AIManagerApp.swift" && "$(basename "$source")" != "CrashReports.swift" ]]; then
     cp "$source" "$source_snapshot/$(basename "$source")"
     mac_gui_sources+=("$source_snapshot/$(basename "$source")")
   fi
