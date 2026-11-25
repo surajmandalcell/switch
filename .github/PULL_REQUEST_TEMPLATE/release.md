@@ -9,7 +9,7 @@ Version bump for Switch X.Y.Z. Branch `release/vX.Y.Z`. Release issue: #
 
 ## Checks (Switch is in production)
 
-- [ ] Swift core suite passes on oci1 (`flock /mnt/sdb/data/switch/build.lock`)
+- [ ] Swift core suite passes on lin1 (Linux) and in the Windows container on lin1
 - [ ] Mac gates: `scripts/check-native.sh`, `scripts/check-mac-gui-contract.sh`,
       `scripts/check-mac-gui-production.sh`, `scripts/check-mac-gui-lint.sh`
 - [ ] CLI: `scripts/check-npm-tui.sh`, `scripts/check-linux.sh`, `scripts/check-installer.sh`
