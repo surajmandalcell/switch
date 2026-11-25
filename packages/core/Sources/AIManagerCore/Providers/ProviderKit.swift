@@ -251,7 +251,7 @@ extension String {
 
 /// How a provider account is stored and what Switching changes.
 public enum CredentialStyle: String, Codable, Sendable {
-    /// Typed secrets (API key, bearer token, pasted Cookie header). Switching selects the default.
+    /// The provider's own API key (never a pasted cookie or web session). Switching selects the default.
     case secret
     /// CLI-owned files in the provider's home. Switching swaps only these files; conversations stay.
     case files
