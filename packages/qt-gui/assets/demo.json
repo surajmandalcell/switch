@@ -88,8 +88,8 @@
       { "id": "copilot", "displayName": "GitHub Copilot", "availability": "enabled" }, { "id": "zai", "displayName": "z.ai / GLM", "availability": "enabled" },
       { "id": "opencodego", "displayName": "OpenCode Go", "availability": "enabled" }, { "id": "gemini-cli", "displayName": "Gemini CLI", "availability": "enabled" },
       { "id": "cursor", "displayName": "Cursor", "availability": "enabled" }, { "id": "openrouter", "displayName": "OpenRouter", "availability": "enabled" },
-      { "id": "deepseek", "displayName": "DeepSeek", "availability": "enabled" }, { "id": "mistral", "displayName": "Mistral", "availability": "enabled" },
-      { "id": "perplexity", "displayName": "Perplexity", "availability": "enabled" }, { "id": "warp", "displayName": "Warp", "availability": "enabled" }
+      { "id": "deepseek", "displayName": "DeepSeek", "availability": "enabled" },
+      { "id": "warp", "displayName": "Warp", "availability": "enabled" }
     ],
     "accounts.status": {
       "sharedRoot": "/home/demo/.codex", "pendingRecovery": [], "linkedSettingsDivergences": [],

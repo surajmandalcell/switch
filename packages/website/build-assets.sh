@@ -32,9 +32,9 @@ tile() {
     \( -size 256x256 xc:none -fill white -draw "roundrectangle 0,0 255,255 58,58" \) -alpha off \
     -compose CopyOpacity -composite -resize 128x128 -quality 90 "$dst"
 }
-for tool in claude-code openai cursor grok-build groq kimi minimax ollama openrouter perplexity \
-  poe raycast warp v0 amp devin elevenlabs fireworks jetbrains notion codebuff exa tavily \
-  replicate venice litellm deepgram manus qoder chutes t3chat abacus langdock; do
+for tool in claude-code openai cursor grok-build groq kimi minimax ollama openrouter \
+  poe warp v0 amp devin elevenlabs fireworks jetbrains codebuff exa tavily \
+  venice litellm deepgram chutes; do
   tile "$icons/ProviderBrand/full-$tool.png" "$out/tools/$tool.webp"
 done
 tile "$icons/ProviderBrand/full-gitkraken.png" "$out/tools/gitkraken.webp" 40

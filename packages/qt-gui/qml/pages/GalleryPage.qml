@@ -67,7 +67,7 @@ Item {
         ProviderTile { provider: "codex"; anchors.verticalCenter: parent.verticalCenter }
         ProviderTile { provider: "claude-code"; anchors.verticalCenter: parent.verticalCenter }
         ProviderTile { provider: "droid"; anchors.verticalCenter: parent.verticalCenter }
-        ProviderTile { provider: "mistral"; name: "Mistral"; anchors.verticalCenter: parent.verticalCenter } }
+        ProviderTile { provider: "deepseek"; name: "DeepSeek"; anchors.verticalCenter: parent.verticalCenter } }
       Line { title: "Skeleton"; help: "loading placeholder"
         Skeleton { width: 160; height: 12; anchors.verticalCenter: parent.verticalCenter }
         Skeleton { width: 60; height: 12; anchors.verticalCenter: parent.verticalCenter } }
