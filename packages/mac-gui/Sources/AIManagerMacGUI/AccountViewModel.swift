@@ -27,6 +27,13 @@ protocol ChatHistoryProviding: Sendable {
     func addClaudeRoots(_ homes: [URL]) async
 }
 
+extension AccountRecord {
+    /// Accounts shown with the generic detail view. Codex, Grok Build, Droid, and Claude Code keep their own.
+    var usesGenericDetail: Bool {
+        ![ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(identity.providerID)
+    }
+}
+
 extension ChatHistoryProviding {
     func attachActivityCache(_ cache: CodexUsageStatisticsCache) async {}
     func addClaudeRoots(_ homes: [URL]) async {}
@@ -1532,7 +1539,9 @@ final class AccountViewModel: ObservableObject {
     func canDeleteAccount(_ accountID: UUID) -> Bool {
         guard let current = status,
               let account = current.accounts.first(where: { $0.id == accountID }) else { return false }
-        return current.defaultAccountID(for: account.identity.providerID) != accountID
+        // Generic providers keep their live files, so the core only clears the default.
+        return account.usesGenericDetail
+            || current.defaultAccountID(for: account.identity.providerID) != accountID
             || deletionReplacement(for: accountID) != nil
     }
 
