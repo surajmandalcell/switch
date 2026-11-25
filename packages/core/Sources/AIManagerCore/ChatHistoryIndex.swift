@@ -336,6 +336,8 @@ private struct TranscriptParseState: Codable, Sendable {
     /// were kept; such a state cannot resume, so one full parse fills it.
     var activityQuarters: [String: CodexModelUsage]? = nil
     var currentModel: String? = nil
+    /// The thread's `service_tier` (`priority`, `ultrafast`); nil means standard.
+    var currentTier: String? = nil
     var appSource: ChatThreadSource = .codex
     var previousSplit: CodexModelUsage? = nil
 }
@@ -1338,6 +1340,7 @@ private enum TranscriptParser {
             ($0.key.split(separator: "\u{1F}").first.flatMap { Int64($0) } ?? 0) >= firstQuarter
         }
         var currentModel = state?.currentModel
+        var currentTier = state?.currentTier
         var appSource = state?.appSource ?? .codex
         var previousSplit = state?.previousSplit ?? CodexModelUsage()
         var previousTokens = state?.previousTokens ?? 0
@@ -1410,6 +1413,12 @@ private enum TranscriptParser {
                 continue
             }
 
+            // Thread settings hold until replaced; a missing or `default` tier is standard.
+            if type == "event_msg", payload?["type"] as? String == "thread_settings_applied" {
+                let tier = (payload?["thread_settings"] as? [String: Any])?["service_tier"] as? String
+                currentTier = ["priority", "fast", "ultrafast"].contains(tier ?? "") ? tier : nil
+            }
+
             if tokenEvent {
                 guard let info = payload?["info"] as? [String: Any] else { continue }
                 guard let usage = info["total_token_usage"] as? [String: Any],
@@ -1446,22 +1455,14 @@ private enum TranscriptParser {
                 let (sum, overflow) = activityDays[day, default: 0].addingReportingOverflow(delta)
                 if overflow { activityComplete = false } else {
                     activityDays[day] = sum
+                    let factors = CodexRequestPricing.multipliers(
+                        model: currentModel ?? "", tier: currentTier, date: timestamp, input: step.input)
                     let key = day + "\u{1F}" + (currentModel ?? "unknown")
-                    var entry = activityModels[key] ?? CodexModelUsage()
-                    entry.tokens += step.tokens
-                    entry.input += step.input
-                    entry.cached += step.cached
-                    entry.output += step.output
-                    activityModels[key] = entry
+                    activityModels[key, default: CodexModelUsage()].add(step, factors: factors)
                     let quarter = Int64((timestamp.timeIntervalSince1970 / 900).rounded(.down))
                     if quarter >= firstQuarter {
                         let slot = "\(quarter)\u{1F}" + (currentModel ?? "unknown")
-                        var usage = activityQuarters[slot] ?? CodexModelUsage()
-                        usage.tokens += step.tokens
-                        usage.input += step.input
-                        usage.cached += step.cached
-                        usage.output += step.output
-                        activityQuarters[slot] = usage
+                        activityQuarters[slot, default: CodexModelUsage()].add(step, factors: factors)
                     }
                 }
                 continue
@@ -1599,6 +1600,7 @@ private enum TranscriptParser {
                 activityModels: activityModels,
                 activityQuarters: activityQuarters,
                 currentModel: currentModel,
+                currentTier: currentTier,
                 appSource: appSource,
                 previousSplit: previousSplit)
         } else {
