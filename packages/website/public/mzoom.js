@@ -290,7 +290,7 @@
   });
 
   // 10. MacBook: a whole MacBook Pro, then the camera zooms into its menu bar and back out.
-  const DOCK = ['icon-256', 'tools/claude-code', 'tools/openai', 'tools/cursor', 'tools/gemini-cli', 'tools/zed', 'tools/warp', 'tools/raycast', 'tools/notion'].map(p => `<img src="assets/${p}.webp" alt="">`).join('');
+  const DOCK = ['icon-256', 'tools/claude-code', 'tools/openai', 'tools/cursor', 'tools/gemini-cli', 'tools/windsurf', 'tools/warp', 'tools/ollama', 'tools/kiro'].map(p => `<img src="assets/${p}.webp" alt="">`).join('');
   add('MacBook zoom', 'mz-mbp-o', el => {
     const view = mk('mz-mbp'), cam = mk('mz-cam', `<div class="mz-lap"><div class="mz-lid"><div class="mz-scr mz-wall">${bar(['apple', '@Finder', 'File', 'Edit', 'View', 'Go', 'Window', 'Help', 'sp', 'bt', 'spk', 'st', 'bat', 'wifi', 'cc', '#full'], 'tall')}<div class="mz-dock">${DOCK}</div></div><i class="mz-notch"></i></div><i class="mz-base"></i></div>`);
     view.append(cam); el.append(view);
@@ -428,7 +428,7 @@
   add('Night', 'mz-cor-o mz-night-o', corner(true));
 
   // 15. Every app: apps come forward with Command-Tab and the app menus change; the status item stays put.
-  const APPS = [['Cursor', 'cursor', 'File', 'Edit', 'Selection'], ['Warp', 'warp', 'File', 'Edit', 'View'], ['Zed', 'zed', 'File', 'Edit', 'Selection'], ['Claude', 'claude-code', 'File', 'Edit', 'View'], ['Notion', 'notion', 'File', 'Edit', 'View']];
+  const APPS = [['Cursor', 'cursor', 'File', 'Edit', 'Selection'], ['Warp', 'warp', 'File', 'Edit', 'View'], ['Windsurf', 'windsurf', 'File', 'Edit', 'Selection'], ['Claude', 'claude-code', 'File', 'Edit', 'View'], ['Ollama', 'ollama', 'File', 'Edit', 'View']];
   add('Every app', 'mz-app-o', el => {
     const stage = mk('mz-stage mz-desk mz-app mz-wall'); el.append(stage);
     let mode = '', k = 0, grp = null, cmd = null;

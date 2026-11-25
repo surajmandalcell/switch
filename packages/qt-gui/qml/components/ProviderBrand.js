@@ -13,11 +13,11 @@ var BRANDS = {
   "claude-code": full("full-claude-code", "#D96F4C"), "grok-build": full("full-grok-build", "#050505"),
   "cursor": full("full-cursor", "#000000"), "amp": full("full-amp", "#2C3A2A"),
   "opencodego": full("full-opencodego", "#131010"), "kilo": full("full-kilo", "#FFDD00"),
-  "ollama": full("full-ollama", "#FFFFFF"), "perplexity": full("full-perplexity", "#000000"),
+  "ollama": full("full-ollama", "#FFFFFF"),
   "groq": full("full-groq", "#F43E01"), "vercel": tinted("vercel", "#FFFFFF", "#000000"),
-  "v0": full("full-v0", "#000000"), "replicate": full("full-replicate", "#ED5759"),
-  "elevenlabs": full("full-elevenlabs", "#FFFFFF"), "notion": full("full-notion", "#FFFFFF"),
-  "poe": full("full-poe", "#000000"), "raycast": full("full-raycast", "#151515"),
+  "v0": full("full-v0", "#000000"),
+  "elevenlabs": full("full-elevenlabs", "#FFFFFF"),
+  "poe": full("full-poe", "#000000"),
   "warp": full("full-warp", "#000000"), "deepgram": full("full-deepgram", "#0C0C0D"),
   "gitkraken": full("full-gitkraken", "#131322"), "jetbrains": full("full-jetbrains", "#FFFFFF"),
   "openrouter": full("full-openrouter", "#03080A"), "kimi": full("full-kimi", "#000000"),
@@ -25,29 +25,24 @@ var BRANDS = {
   "minimax": full("full-minimax", "#E3177F"), "tavily": full("full-tavily", "#1F1E1E"),
   "venice": full("full-venice", "#FFFFFF"), "doubao": full("full-doubao", "#CAE4FF"),
   "exa": full("full-exa", "#1F40ED"), "fireworks": full("full-fireworks", "#F2F2F2"),
-  "qoder": full("full-qoder", "#F3F3F3"), "manus": full("full-manus", "#FFFFFF"),
   "nous": full("full-nous", "#FFFFFF"), "mimo": full("full-mimo", "#000000"),
-  "devin": full("full-devin", "#0E1015"), "abacus": full("full-abacus", "#0A0E1C"),
+  "devin": full("full-devin", "#0E1015"),
   "aerostack": full("full-aerostack", "#F7F7F7"), "aiand": full("full-aiand", "#FFFFFF"),
   "aixy": full("full-aixy", "#123650"), "bifrost": full("full-bifrost", "#40DBB6"),
   "chutes": full("full-chutes", "#121212"), "codebuff": full("full-codebuff", "#000000"),
-  "commandcode": full("full-commandcode", "#000000"), "helmcode": full("full-helmcode", "#0A0A0A"),
-  "langdock": full("full-langdock", "#4469FC"), "linkup": full("full-linkup", "#FFFFFF"),
+  "linkup": full("full-linkup", "#FFFFFF"),
   "litellm": full("full-litellm", "#0117BE"), "sofya": full("full-sofya", "#0A0806"),
-  "synthetic": full("full-synthetic", "#FFFFFF"), "t3chat": full("full-t3chat", "#C21789"),
-  "tinyapi": full("full-tinyapi", "#CF7600"), "typesafe": full("full-typesafe", "#E551BA"),
-  "workbuddy": full("full-workbuddy", "#FFFFFF"),
+  "synthetic": full("full-synthetic", "#FFFFFF"),
   "azureopenai": color("azure"), "gemini-cli": color("gemini"), "antigravity-cli": color("antigravity"),
-  "deepseek": color("deepseek"), "qwencloud": color("qwen"), "alibaba": color("alibabacloud"),
-  "alibabatokenplan": color("bailian"), "mistral": color("mistral"), "huggingface": color("huggingface"),
-  "zed": color("zed"), "stepfun": color("stepfun"), "vertexai": color("vertexai"), "bedrock": color("bedrock"),
-  "deepinfra": color("deepinfra"), "longcat": color("longcat"), "kiro": color("kiro", "#9046FF"),
+  "deepseek": color("deepseek"), "alibaba": color("alibabacloud"), "huggingface": color("huggingface"),
+  "vertexai": color("vertexai"), "bedrock": color("bedrock"),
+  "deepinfra": color("deepinfra"), "kiro": color("kiro", "#9046FF"),
   "ibmbob": color("ibmbob"), "devpass": color("devpass", "#09090B"), "neuralwatt": color("neuralwatt"),
   "xkiro": color("xkiro"), "cosmic": color("cosmic"), "pi": color("pi"), "muse": color("meta"),
-  "zoommate": tinted("zoom", "#FFFFFF", "#0B5CFF"), "xai": mono("xai"), "xapi": tinted("x", "#FFFFFF", "#000000"),
+  "xai": mono("xai"),
   "zai": tinted("zai", "#FFFFFF", "#2D2D2D"), "zenmux": mono("zenmux"), "windsurf": mono("windsurf"),
   "copilot": mono("githubcopilot"), "clinepass": mono("cline"), "atlascloud": mono("atlascloud"),
-  "augment": mono("augment"), "factory": tinted("factory", "#FAFAFA", "#020202"),
+  "factory": tinted("factory", "#FAFAFA", "#020202"),
   "droid": tinted("factory", "#FAFAFA", "#020202")
 }
 
@@ -62,15 +57,15 @@ var GLYPHS = {
 var ICON_ALIASES = {
   "gemini-cli": "gemini", "antigravity-cli": "antigravity", "grok-build": "grok", "claude-code": "claude",
   "github-copilot": "copilot", "droid": "factory", "kimi-api": "kimi", "moonshot": "kimi",
-  "qwencloud-team": "qwencloud", "alibabatokenplan": "alibaba", "azureopenai": "openai"
+  "azureopenai": "openai"
 }
-var ICONS = ("abacus aerostack aiand aixy alibaba amp antigravity atlascloud augment bedrock bifrost chutes claude clawrouter "
-  + "clinepass codebuff coderabbit codex commandcode copilot cosmic cursor deepgram deepinfra deepseek devin devpass doubao "
-  + "elevenlabs exa factory fireworks gemini gitkraken grok groq helmcode huggingface hyper ibmbob jetbrains kilo kimi kiro "
-  + "langdock linkup litellm lithosai llmman llmproxy longcat manus mimo minimax mistral muse museai neuralwatt notion nous "
-  + "ollama opencode opencodego openrouter perplexity pi poe qoder qwencloud raycast replicate sailresearch sakana sofya "
-  + "stepfun sub2api synthetic t3chat tavily tinyapi typesafe v0 venice vercel vertexai warp wayfinder windsurf workbuddy "
-  + "xai xapi xkiro zai zed zenmux zoommate").split(" ")
+var ICONS = ("aerostack aiand aixy alibaba amp antigravity atlascloud bedrock bifrost chutes claude clawrouter "
+  + "clinepass codebuff coderabbit codex copilot cosmic cursor deepgram deepinfra deepseek devin devpass doubao "
+  + "elevenlabs exa factory fireworks gemini gitkraken grok groq huggingface hyper ibmbob jetbrains kilo kimi kiro "
+  + "linkup litellm llmman llmproxy mimo minimax muse museai neuralwatt nous "
+  + "ollama opencode opencodego openrouter pi poe sailresearch sofya "
+  + "sub2api synthetic tavily v0 venice vercel vertexai warp wayfinder windsurf "
+  + "xai xkiro zai zenmux").split(" ")
 
 function brand(id) { return BRANDS[id] || null }
 // The template image for a provider without a brand, or "" for the monogram.
