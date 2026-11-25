@@ -23,10 +23,10 @@ do
   xmllint --noout "$icons/$svg"
 done
 
-# CodexBar's monochrome provider icons: 96 valid SVGs, no executable or remote content, MIT notice.
+# CodexBar's monochrome provider icons: 72 valid SVGs, no executable or remote content, MIT notice.
 provider_icons="$icons/ProviderIcons"
 test -s "$provider_icons/LICENSE-CodexBar.txt"
-[[ "$(find "$provider_icons" -name 'ProviderIcon-*.svg' | wc -l | tr -d ' ')" == 96 ]]
+[[ "$(find "$provider_icons" -name 'ProviderIcon-*.svg' | wc -l | tr -d ' ')" == 72 ]]
 for svg in "$provider_icons"/ProviderIcon-*.svg
 do
   xmllint --noout "$svg"

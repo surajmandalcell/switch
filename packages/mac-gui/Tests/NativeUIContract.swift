@@ -628,12 +628,12 @@ enum AIManagerNativeContract {
     func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
       if !condition() { failures.append(message) }
     }
-    // Icons: 96 packaged monochrome marks, each one renders, aliases resolve, licence ships.
+    // Icons: 72 packaged monochrome marks, each one renders, aliases resolve, licence ships.
     let bundle = Bundle.main
     let directory = bundle.resourceURL?.appending(path: "Icons/ProviderIcons", directoryHint: .isDirectory)
     let files = directory.flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) } ?? []
     let icons = files.filter { $0.hasPrefix("ProviderIcon-") && $0.hasSuffix(".svg") }
-    expect(icons.count == 96, "Packaged provider icons are missing: found \(icons.count) of 96")
+    expect(icons.count == 72, "Packaged provider icons are missing: found \(icons.count) of 72")
     expect(files.contains("LICENSE-CodexBar.txt"), "The CodexBar MIT notice is not packaged with the icons")
     func rendersInk(_ image: NSImage) -> Bool {
       guard let bitmap = NSBitmapImageRep(
@@ -2366,7 +2366,7 @@ enum AIManagerNativeContract {
         expect(ratio >= 4.5, "Badge text on the \(name) chip is \(String(format: "%.2f", ratio)):1 in \(dark ? "dark" : "light"), under 4.5:1")
       }
     }
-    expect(UsageBarColor.table.count == 75, "The usage bar color table is not 75 brands")
+    expect(UsageBarColor.table.count == 53, "The usage bar color table is not 53 brands")
     for (id, values) in UsageBarColor.table {
       let bar = UsageBarColor.color(usedPercent: 10, providerID: ProviderID(rawValue: id))
       let (light, dark) = (values.first!, values.last!)
