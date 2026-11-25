@@ -140,7 +140,8 @@ extension AppEngine {
             let account = try await self.account(id)
             let isDefault = await self.status?.isDefault(account) == true
             let replacement = await self.deletionReplacement(account)
-            if isDefault, replacement == nil {
+            let isGeneric = ![ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(account.identity.providerID)
+            if isDefault, replacement == nil, !isGeneric {
                 throw AIManagerError.operationFailed("No saved account is available as a replacement.")
             }
             let name = self.label(account.identity)
