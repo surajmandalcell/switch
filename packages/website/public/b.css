@@ -3,7 +3,7 @@ body { background: var(--bg); color: var(--ink); }
 .wrap { max-width: 1240px; margin: 0 auto; padding: 0 28px; }
 code { font: .92em var(--mono); }
 ul { list-style: none; margin: 0; padding: 0; }
-a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid #0A84FF; outline-offset: 3px; border-radius: 10px; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: none; background-color: rgba(0, 0, 0, .06); border-radius: 10px; }
 @keyframes in { from { opacity: 0; transform: translateY(14px); } }
 @keyframes drop { 45% { transform: translateY(120%); opacity: 0; } 46% { transform: translateY(-120%); opacity: 0; } }
 
@@ -78,7 +78,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 84px; }
 
 /* Buttons: Apple black download, white GitHub */
 .bk1 { display: inline-flex; align-items: center; gap: 12px; height: 58px; padding: 0 26px 0 22px; border-radius: 17px; background: #000; color: #fff; font-size: 17px; font-weight: 600; letter-spacing: -.015em; white-space: nowrap; transition: transform .35s var(--spring), background-color .2s; }
-.bk1:hover { background: #2C2C2E; }
+.bk1:hover, .bk1:focus-visible { background: #2C2C2E; }
 .bk1:active, .bk1.going { transform: scale(.97); transition-duration: .12s; }
 .bk1 .ap { flex: none; width: 20px; height: 24px; margin-top: -3px; }
 .bk1 .tx { text-align: left; line-height: 1.15; } .bk1 small { display: block; margin-top: 1px; font-size: 12px; font-weight: 500; opacity: .7; letter-spacing: 0; }
