@@ -27,6 +27,13 @@ protocol ChatHistoryProviding: Sendable {
     func addClaudeRoots(_ homes: [URL]) async
 }
 
+extension AccountRecord {
+    /// Accounts shown with the generic detail view. Codex, Grok Build, Droid, and Claude Code keep their own.
+    var usesGenericDetail: Bool {
+        ![ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(identity.providerID)
+    }
+}
+
 extension ChatHistoryProviding {
     func attachActivityCache(_ cache: CodexUsageStatisticsCache) async {}
     func addClaudeRoots(_ homes: [URL]) async {}
