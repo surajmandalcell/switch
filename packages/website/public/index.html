@@ -16,7 +16,7 @@
 <meta property="og:image" content="https://switch.samhq.app/assets/og.jpg?v=monument">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="kit.css?v=brew">
-<link rel="stylesheet" href="b.css?v=brew">
+<link rel="stylesheet" href="b.css?v=dlmenu">
 <link rel="stylesheet" href="speed.css">
 <link rel="stylesheet" href="meters.css">
 <link rel="stylesheet" href="ring.css">
@@ -36,12 +36,15 @@
   <symbol id="i-arr" viewBox="0 0 16 16"><path d="M8 2.5v10.5M3.5 8.8 8 13.3l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-right" viewBox="0 0 16 16"><path d="M2.5 8h10.5M8.8 3.5 13.3 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-apple" viewBox="0 0 24 24"><path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 12 12"><path d="M3 4.6 6 7.6l3-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-win" viewBox="0 0 16 16"><path fill="currentColor" d="M1.5 2.9 6.8 2.2v5.2H1.5zM7.6 2.1l6.9-1v6.3H7.6zM1.5 8.3h5.3v5.2l-5.3-.7zM7.6 8.3h6.9v6.6l-6.9-1z"/></symbol>
+  <symbol id="i-brew" viewBox="0 0 16 16"><path d="M3.5 5.5h7v7a2 2 0 0 1-2 2h-3a2 2 0 0 1-2-2zM10.5 7h1.2a1.8 1.8 0 0 1 0 3.6h-1.2M4.2 5.5c-.6-2 1-3.6 2.6-2.8.8-1.3 3.2-.9 3 1.3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/></symbol>
   <symbol id="i-ok" viewBox="0 0 16 16"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
 
 <header class="nav" id="nav">
   <div class="wrap"><a class="brand" href="#" data-noedit aria-label="Switch, back to top"><img src="assets/icon-256.webp" alt=""><span class="bt">Switch</span></a><nav data-noedit><span class="ind" aria-hidden="true"></span><a href="#speed">Performance</a><a href="#features">Switching</a><a href="#tools">Tools</a><a href="#safety">Logins</a><a href="#faq">FAQ</a></nav>
-    <div class="dlw"><a class="dl dlx" data-dl href="#" aria-label="Download Switch for Mac"><svg class="dl-ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="dl-t"><span class="dl-m">Download</span></span></a></div>
+    <div class="dlw"><a class="ghn" data-gh href="https://github.com/samhqapp/switch" target="_blank" rel="noopener" aria-label="Switch on GitHub"><svg aria-hidden="true"><use href="#i-gh"/></svg></a><a class="dl" href="#get"><svg class="dl-ar" aria-hidden="true"><use href="#i-arr"/></svg><span class="dl-t"><span class="dl-m">Download</span></span></a></div>
   </div>
 </header>
 
@@ -52,7 +55,7 @@
     <h1 class="h-t"><em class="hw">Change coding accounts.</em><span class="g">Keep your local conversations.</span></h1>
     <p class="h-sub">Keep saved logins for your coding tools. Choose another supported account when you need it.</p>
     <div class="h-cta">
-      <a class="bk1 dlx" data-dl href="#"><svg class="ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="tx">Download for Mac<small>Free · Apple silicon</small></span></a>
+      <span class="dd"><a class="bk1" data-dl href="#"><svg class="ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="tx">Download for Mac<small>Free · Apple silicon</small></span></a><button type="button" class="dd-c" aria-haspopup="menu" aria-expanded="false" aria-label="Other platforms"><svg aria-hidden="true"><use href="#i-chev"/></svg></button></span>
       <a class="ghb" data-gh href="#" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-gh"/></svg><span>View on GitHub</span></a>
     </div>
     <ul class="h-meta"><li>v<span data-version>3.8.2</span></li><li>macOS 14 or later</li></ul>
@@ -148,7 +151,7 @@
   <section class="faqs grp" data-g="faq" id="faq"><div class="q" data-reveal><h2 class="h2">Questions about Switch</h2><p>For other questions, open an issue on GitHub.</p></div><div data-faq data-reveal style="--i:1"></div></section>
 
   <section class="cta-wrap grp" data-g="get" id="get">
-    <div class="bigicon" data-reveal><button type="button" data-noedit aria-label="Switch"><img src="assets/icon-512.webp" alt=""></button><h2>Download Switch for Mac</h2><p class="bi-sub">Save logins, check usage, and choose an account from the menu bar.</p><div class="row"><a class="bk1 dlx" data-dl href="#"><svg class="ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="tx">Download for Mac<small>Free · Apple silicon</small></span></a><a class="ghb" data-gh href="#" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-gh"/></svg><span class="g1">View on GitHub</span></a></div><div class="meta">v3.8.2<i></i>23.5 MB<i></i>macOS 14 or later</div><button type="button" class="brew" data-copy="brew install --cask samhqapp/tap/switch" aria-label="Copy the Homebrew install command"><span>Or with Homebrew:</span><span class="chip"><code>brew install --cask samhqapp/tap/switch</code><span class="k-copy"></span></span></button></div>
+    <div class="bigicon" data-reveal><button type="button" data-noedit aria-label="Switch"><img src="assets/icon-512.webp" alt=""></button><h2>Download Switch for Mac</h2><p class="bi-sub">Save logins, check usage, and choose an account from the menu bar.</p><div class="row"><span class="dd"><a class="bk1" data-dl href="#"><svg class="ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="tx">Download for Mac<small>Free · Apple silicon</small></span></a><button type="button" class="dd-c" aria-haspopup="menu" aria-expanded="false" aria-label="Other platforms"><svg aria-hidden="true"><use href="#i-chev"/></svg></button></span><a class="ghb" data-gh href="#" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-gh"/></svg><span class="g1">View on GitHub</span></a></div><div class="meta">v3.8.2<i></i>23.5 MB<i></i>macOS 14 or later</div><button type="button" class="brew" data-copy="brew install --cask samhqapp/tap/switch" aria-label="Copy the Homebrew install command"><span>Or with Homebrew:</span><span class="chip"><code>brew install --cask samhqapp/tap/switch</code><span class="k-copy"></span></span></button></div>
   </section>
 
   <footer class="foot grp" data-g="foot">
@@ -156,9 +159,17 @@
   </footer>
 </div>
 
+<div class="dmenu" role="menu" aria-label="Other platforms" hidden>
+  <a class="dm-i" role="menuitem" tabindex="-1" data-dl data-os="mac" href="#"><i class="dm-o"><svg aria-hidden="true"><use href="#i-apple"/></svg></i><span class="dm-t"><b>Mac</b><small>Apple silicon · macOS 14 or later</small></span></a>
+  <div class="dm-i" role="menuitem" tabindex="-1" data-os="mac" data-copy="brew install --cask samhqapp/tap/switch" aria-label="Copy the Homebrew install command"><i class="dm-o"><svg aria-hidden="true"><use href="#i-brew"/></svg></i><span class="dm-t"><b>Homebrew</b><span class="dm-c"><code>brew install --cask samhqapp/tap/switch</code><span class="k-copy"></span></span></span></div>
+  <div class="dm-i" role="menuitem" tabindex="-1" data-os="linux" data-copy="curl -fsSL https://raw.githubusercontent.com/samhqapp/switch/master/install.sh | sh" aria-label="Copy the Linux install command"><i class="dm-o"><i class="tux"></i></i><span class="dm-t"><b>Linux</b><span class="dm-c"><code>curl -fsSL https://raw.githubusercontent.com/samhqapp/switch/master/install.sh | sh</code><span class="k-copy"></span></span><small>Command line · x86_64 and arm64 · glibc 2.38+</small></span></div>
+  <div class="dm-i" role="menuitem" aria-disabled="true" data-os="windows"><i class="dm-o"><svg aria-hidden="true"><use href="#i-win"/></svg></i><span class="dm-t"><b>Windows</b><small>Coming with Switch 3.10</small></span><span class="dm-s">Soon</span></div>
+  <div class="dm-sep" role="separator"></div>
+  <a class="dm-i" role="menuitem" tabindex="-1" href="https://github.com/samhqapp/switch/releases" target="_blank" rel="noopener"><i class="dm-o"><svg aria-hidden="true"><use href="#i-gh"/></svg></i><span class="dm-t"><b>All releases</b><small>Release notes and older versions</small></span></a>
+</div>
 <div class="dtoast" role="status" aria-live="polite"><i><svg aria-hidden="true"><use href="#i-ok"/></svg></i><div><b>Downloading Switch 3.8.2</b><span>Open it from Downloads, then move it to Applications.</span></div></div>
 
-<script src="site.js?v=brew"></script>
+<script src="site.js?v=dlmenu"></script>
 <script>
 const nav = document.getElementById('nav'), links = [...nav.querySelectorAll('nav a')], ind = nav.querySelector('.ind');
 const secs = links.map(a => document.querySelector(a.getAttribute('href')));
