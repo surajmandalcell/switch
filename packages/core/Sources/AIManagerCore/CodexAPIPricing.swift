@@ -40,6 +40,83 @@ public struct CodexAPIPrice: Sendable, Equatable {
     }
 }
 
+/// How one Codex request bills against standard list rates: its service tier and long context.
+/// Rules follow OpenAI's API pricing page, as CodexBar applies them.
+public enum CodexRequestPricing {
+    /// A prompt above this many input tokens bills the whole request at long-context rates.
+    public static let longContextInputTokens: Int64 = 272_000
+    /// The GPT-6.2 Ultrafast promotion (3x) ends at midnight Pacific on March 1, 2027 (08:00 UTC).
+    public static let ultrafastPromotionEnd = Date(timeIntervalSince1970: 1_803_888_000)
+
+    /// Published per-million list rates, used when the LiteLLM catalog lacks a model.
+    static let listPrices: [String: (input: Double, cached: Double, output: Double)] = [
+        "gpt-6-astra": (10, 1, 50), "gpt-6.1-sol": (2, 0.1, 10), "gpt-6.1-terra": (1, 0.05, 5),
+        "gpt-6-sol": (2, 0.2, 10), "gpt-6-luna": (0.1, 0.01, 0.5),
+        "gpt-6.2-astra": (8, 0.4, 40), "gpt-6.2-sol": (2, 0.1, 10),
+    ]
+
+    private static let longContextModels: Set<String> = [
+        "gpt-5.4", "gpt-5.4-pro", "gpt-5.5", "gpt-5.5-pro", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+        "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "gpt-6.2-astra", "gpt-6.2-sol",
+    ]
+    /// Models whose Fast (priority) rates also cover long-context requests.
+    private static let longContextFastModels: Set<String> = [
+        "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-6.2-astra", "gpt-6.2-sol",
+    ]
+
+    /// `gpt-6.1-terra` from `openai/GPT-6.1-Terra-2026-10-01`.
+    public static func normalized(_ model: String) -> String {
+        var name = model.lowercased()
+        if let slash = name.lastIndex(of: "/") { name = String(name[name.index(after: slash)...]) }
+        return name.replacingOccurrences(of: #"-\d{4}-\d{2}-\d{2}$"#, with: "", options: .regularExpression)
+    }
+
+    public static func listPrice(_ model: String) -> CodexAPIPrice? {
+        listPrices[normalized(model)].map {
+            CodexAPIPrice(model: model, inputPerMillion: $0.input, cachedInputPerMillion: $0.cached,
+                          outputPerMillion: $0.output)
+        }
+    }
+
+    /// Factors on the standard uncached-input, cached-input and output rates for one request.
+    /// `tier` is the transcript's `service_tier`; `input` is the request's input tokens.
+    public static func multipliers(model: String, tier: String?, date: Date, input: Int64)
+        -> (input: Double, cached: Double, output: Double) {
+        let name = normalized(model)
+        let long = input > longContextInputTokens && longContextModels.contains(name)
+        let scale: Double
+        switch tier {
+        case "priority", "fast":
+            // shortcut: Fast on an unlisted model, or long context without published Fast rates,
+            // bills as standard; add the rate here when OpenAI publishes it.
+            scale = long && !longContextFastModels.contains(name) ? 1 : fastMultiplier(name) ?? 1
+        case "ultrafast":
+            // shortcut: Ultrafast on an unlisted model bills as standard; add it when published.
+            scale = ultrafastMultiplier(name, date: date) ?? 1
+        default:
+            scale = 1
+        }
+        return long ? (2 * scale, 2 * scale, 1.5 * scale) : (scale, scale, scale)
+    }
+
+    static func fastMultiplier(_ name: String) -> Double? {
+        switch name {
+        case "gpt-5.4", "gpt-5.4-mini", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+             "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-6.2-astra", "gpt-6.2-sol": 2
+        case "gpt-5.5": 2.5
+        default: nil
+        }
+    }
+
+    static func ultrafastMultiplier(_ name: String, date: Date) -> Double? {
+        switch name {
+        case "gpt-6-astra", "gpt-6.1-sol": 6
+        case "gpt-6.2-astra", "gpt-6.2-sol": date < ultrafastPromotionEnd ? 3 : 6
+        default: nil
+        }
+    }
+}
+
 public actor CodexAPIPricingResolver {
     public static let cacheTTL: TimeInterval = 24 * 60 * 60
     public static let catalogURL = URL(
@@ -79,11 +156,12 @@ public actor CodexAPIPricingResolver {
         }
         do {
             let data = try await fetch(Self.catalogURL)
-            guard let price = Self.price(in: data, model: model) else { return nil }
+            guard let price = Self.price(in: data, model: model) else { return CodexRequestPricing.listPrice(model) }
             try? store(data)
             return price
         } catch {
             if let cached, let price = Self.price(in: cached, model: model) { return price }
+            if let price = CodexRequestPricing.listPrice(model) { return price }
             throw error
         }
     }

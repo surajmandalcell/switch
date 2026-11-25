@@ -123,6 +123,27 @@ struct CodexModelUsage: Codable, Sendable, Equatable {
     var input: Int64 = 0
     var cached: Int64 = 0
     var output: Int64 = 0
+    /// Uncached input, cached input and output scaled by each request's tier and long-context
+    /// factors (`CodexRequestPricing.multipliers`). Nil in states saved before tiers were kept,
+    /// which bill as standard.
+    var billedInput: Double? = nil
+    var billedCached: Double? = nil
+    var billedOutput: Double? = nil
+
+    var billed: (input: Double, cached: Double, output: Double) {
+        (billedInput ?? Double(max(input - cached, 0)), billedCached ?? Double(cached), billedOutput ?? Double(output))
+    }
+
+    mutating func add(_ step: CodexModelUsage, factors: (input: Double, cached: Double, output: Double)) {
+        let old = billed
+        tokens += step.tokens
+        input += step.input
+        cached += step.cached
+        output += step.output
+        billedInput = old.input + Double(max(step.input - step.cached, 0)) * factors.input
+        billedCached = old.cached + Double(step.cached) * factors.cached
+        billedOutput = old.output + Double(step.output) * factors.output
+    }
 }
 
 struct CodexTranscriptActivity: Sendable {
@@ -150,6 +171,11 @@ public struct CodexLedgerThreadQuarter: Sendable, Equatable {
     public let input: Int64
     public let cached: Int64
     public let output: Int64
+    /// Uncached input, cached input and output scaled by tier and long context, ready for list
+    /// rates. Rows saved before tiers were kept carry their plain tokens (standard).
+    public var billedInput: Double = 0
+    public var billedCached: Double = 0
+    public var billedOutput: Double = 0
 }
 
 /// One local-transcript day of a thread: shared-home data, never attached to an account.
@@ -162,6 +188,9 @@ public struct CodexLedgerThreadDay: Sendable, Equatable {
     public let input: Int64
     public let cached: Int64
     public let output: Int64
+    public var billedInput: Double = 0
+    public var billedCached: Double = 0
+    public var billedOutput: Double = 0
 }
 
 /// A thread's tokens with one model on one day. `threadID` carries the ledger's `codex:` prefix and
@@ -175,6 +204,9 @@ public struct CodexLedgerSessionRow: Sendable, Equatable {
     public let input: Int64
     public let cached: Int64
     public let output: Int64
+    public var billedInput: Double = 0
+    public var billedCached: Double = 0
+    public var billedOutput: Double = 0
 }
 
 public struct CodexLedgerAccountDay: Sendable, Equatable {
@@ -186,6 +218,8 @@ public struct CodexLedgerAccountDay: Sendable, Equatable {
 public actor CodexUsageStatisticsCache {
     public static let schemaVersion: Int32 = 1
     /// Activity tables migrate in place and remain separate from expiring quota samples.
+    /// Additive tables (`thread_quarters`, the `_billed` tier sums) keep this version so an older
+    /// build still opens and writes the file.
     static let activitySchemaVersion: Int32 = 3
 
     private let databaseURL: URL
@@ -286,6 +320,16 @@ public actor CodexUsageStatisticsCache {
                             PRIMARY KEY(thread_id, quarter, model)
                         ) WITHOUT ROWID;
                         CREATE INDEX IF NOT EXISTS thread_quarters_time ON thread_quarters(quarter);
+                        CREATE TABLE IF NOT EXISTS model_days_billed(
+                            thread_id TEXT NOT NULL, slot TEXT NOT NULL, model TEXT NOT NULL, tokens INTEGER NOT NULL,
+                            billed_input REAL NOT NULL, billed_cached REAL NOT NULL, billed_output REAL NOT NULL,
+                            PRIMARY KEY(thread_id, slot, model)
+                        ) WITHOUT ROWID;
+                        CREATE TABLE IF NOT EXISTS thread_quarters_billed(
+                            thread_id TEXT NOT NULL, slot INTEGER NOT NULL, model TEXT NOT NULL, tokens INTEGER NOT NULL,
+                            billed_input REAL NOT NULL, billed_cached REAL NOT NULL, billed_output REAL NOT NULL,
+                            PRIMARY KEY(thread_id, slot, model)
+                        ) WITHOUT ROWID;
                         PRAGMA user_version = \(Self.activitySchemaVersion);
                         """)
                 }
@@ -733,8 +777,9 @@ public actor CodexUsageStatisticsCache {
         return try Self.withDatabase(at: activityDatabaseURL) { database in
             var rows: [CodexLedgerThreadDay] = []
             let models = try Self.prepare(database, """
-                SELECT t.project, m.day, m.model, SUM(m.tokens), SUM(m.input), SUM(m.cached), SUM(m.output)
-                FROM model_days m JOIN activity_threads t USING(thread_id)
+                SELECT t.project, m.day, m.model, SUM(m.tokens), SUM(m.input), SUM(m.cached), SUM(m.output),
+                       \(Self.billed("m").select)
+                FROM model_days m JOIN activity_threads t USING(thread_id) \(Self.billed("m").join)
                 WHERE m.day BETWEEN ?1 AND ?2 GROUP BY t.project, m.day, m.model
                 """)
             defer { sqlite3_finalize(models) }
@@ -746,7 +791,10 @@ public actor CodexUsageStatisticsCache {
                 let model = Self.text(models, column: 2)
                 rows.append(.init(day: day, project: project, model: model == "unknown" ? nil : model,
                                   tokens: sqlite3_column_int64(models, 3), input: sqlite3_column_int64(models, 4),
-                                  cached: sqlite3_column_int64(models, 5), output: sqlite3_column_int64(models, 6)))
+                                  cached: sqlite3_column_int64(models, 5), output: sqlite3_column_int64(models, 6),
+                                  billedInput: sqlite3_column_double(models, 7),
+                                  billedCached: sqlite3_column_double(models, 8),
+                                  billedOutput: sqlite3_column_double(models, 9)))
             }
             // Whatever a project day holds beyond its model rows has no model.
             let rest = try Self.prepare(database, """
@@ -778,8 +826,9 @@ public actor CodexUsageStatisticsCache {
         return try Self.withDatabase(at: activityDatabaseURL) { database in
             var rows: [CodexLedgerThreadQuarter] = []
             let statement = try Self.prepare(database, """
-                SELECT q.quarter, t.project, q.model, SUM(q.tokens), SUM(q.input), SUM(q.cached), SUM(q.output)
-                FROM thread_quarters q JOIN activity_threads t USING(thread_id)
+                SELECT q.quarter, t.project, q.model, SUM(q.tokens), SUM(q.input), SUM(q.cached), SUM(q.output),
+                       \(Self.billed("q").select)
+                FROM thread_quarters q JOIN activity_threads t USING(thread_id) \(Self.billed("q").join)
                 WHERE q.quarter BETWEEN ?1 AND ?2 GROUP BY q.quarter, t.project, q.model
                 """)
             defer { sqlite3_finalize(statement) }
@@ -792,7 +841,8 @@ public actor CodexUsageStatisticsCache {
                     quarter: sqlite3_column_int64(statement, 0), project: project,
                     model: model == "unknown" ? nil : model, tokens: sqlite3_column_int64(statement, 3),
                     input: sqlite3_column_int64(statement, 4), cached: sqlite3_column_int64(statement, 5),
-                    output: sqlite3_column_int64(statement, 6)))
+                    output: sqlite3_column_int64(statement, 6), billedInput: sqlite3_column_double(statement, 7),
+                    billedCached: sqlite3_column_double(statement, 8), billedOutput: sqlite3_column_double(statement, 9)))
             }
             guard sqlite3_errcode(database) == SQLITE_OK || sqlite3_errcode(database) == SQLITE_DONE else {
                 throw Self.databaseError(database, "Could not read hourly activity")
@@ -807,8 +857,10 @@ public actor CodexUsageStatisticsCache {
         return try Self.withDatabase(at: activityDatabaseURL) { database in
             var rows: [CodexLedgerSessionRow] = []
             let models = try Self.prepare(database, """
-                SELECT t.thread_id, t.project, t.first_event, m.model, m.tokens, m.input, m.cached, m.output
-                FROM model_days m JOIN activity_threads t USING(thread_id) WHERE m.day = ?1
+                SELECT t.thread_id, t.project, t.first_event, m.model, m.tokens, m.input, m.cached, m.output,
+                       \(Self.billed("m", sum: false).select)
+                FROM model_days m JOIN activity_threads t USING(thread_id) \(Self.billed("m").join)
+                WHERE m.day = ?1
                 """)
             defer { sqlite3_finalize(models) }
             Self.bind(day, to: models, at: 1)
@@ -819,7 +871,8 @@ public actor CodexUsageStatisticsCache {
                     threadID: id, project: project, firstEvent: Self.text(models, column: 2) ?? "",
                     model: model == "unknown" ? nil : model, tokens: sqlite3_column_int64(models, 4),
                     input: sqlite3_column_int64(models, 5), cached: sqlite3_column_int64(models, 6),
-                    output: sqlite3_column_int64(models, 7)))
+                    output: sqlite3_column_int64(models, 7), billedInput: sqlite3_column_double(models, 8),
+                    billedCached: sqlite3_column_double(models, 9), billedOutput: sqlite3_column_double(models, 10)))
             }
             let rest = try Self.prepare(database, """
                 SELECT t.thread_id, t.project, t.first_event,
@@ -910,6 +963,7 @@ public actor CodexUsageStatisticsCache {
                 guard sqlite3_step(deleteModels) == SQLITE_DONE else {
                     throw Self.databaseError(database, "Could not replace transcript model activity")
                 }
+                try Self.saveBilled(database, table: "model_days_billed", id: id, rows: activity.models)
                 let insertModel = try Self.prepare(database,
                     "INSERT OR REPLACE INTO model_days VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)")
                 defer { sqlite3_finalize(insertModel) }
@@ -934,6 +988,7 @@ public actor CodexUsageStatisticsCache {
                 guard sqlite3_step(deleteQuarters) == SQLITE_DONE else {
                     throw Self.databaseError(database, "Could not replace transcript hourly activity")
                 }
+                try Self.saveBilled(database, table: "thread_quarters_billed", id: id, rows: activity.quarters)
                 let insertQuarter = try Self.prepare(database,
                     "INSERT OR REPLACE INTO thread_quarters VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)")
                 defer { sqlite3_finalize(insertQuarter) }
@@ -1290,6 +1345,48 @@ public actor CodexUsageStatisticsCache {
             _ = sqlite3_exec(database, "ROLLBACK", nil, nil, nil)
             throw error
         }
+    }
+
+    /// Replaces one thread's tier-scaled sums. Rows are keyed like `model_days` / `thread_quarters`
+    /// (`slot` is the day or quarter) and carry the plain token count they were made with.
+    private static func saveBilled(_ database: OpaquePointer, table: String, id: String,
+                                   rows: [String: CodexModelUsage]) throws {
+        let delete = try prepare(database, "DELETE FROM \(table) WHERE thread_id = ?1")
+        defer { sqlite3_finalize(delete) }
+        bind(id, to: delete, at: 1)
+        guard sqlite3_step(delete) == SQLITE_DONE else { throw databaseError(database, "Could not replace tier usage") }
+        let insert = try prepare(database, "INSERT OR REPLACE INTO \(table) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+        defer { sqlite3_finalize(insert) }
+        let quarters = table == "thread_quarters_billed"
+        for (key, usage) in rows {
+            let parts = key.split(separator: "\u{1F}", maxSplits: 1).map(String.init)
+            guard parts.count == 2, usage.tokens >= 0 else { continue }
+            sqlite3_reset(insert)
+            bind(id, to: insert, at: 1)
+            if quarters { sqlite3_bind_int64(insert, 2, Int64(parts[0]) ?? -1) } else { bind(parts[0], to: insert, at: 2) }
+            bind(String(parts[1].prefix(256)), to: insert, at: 3)
+            sqlite3_bind_int64(insert, 4, usage.tokens)
+            let billed = usage.billed
+            sqlite3_bind_double(insert, 5, billed.input)
+            sqlite3_bind_double(insert, 6, billed.cached)
+            sqlite3_bind_double(insert, 7, billed.output)
+            guard sqlite3_step(insert) == SQLITE_DONE else { throw databaseError(database, "Could not save tier usage") }
+        }
+    }
+
+    /// Join and select of tier-scaled sums for `model_days m` or `thread_quarters q`. A row saved
+    /// before tiers were kept, or rewritten by an older build (token count differs), bills as standard.
+    private static func billed(_ alias: String, sum: Bool = true) -> (join: String, select: String) {
+        let (table, slot) = alias == "m" ? ("model_days_billed", "day") : ("thread_quarters_billed", "quarter")
+        let join = """
+            LEFT JOIN \(table) b ON b.thread_id = \(alias).thread_id AND b.slot = \(alias).\(slot)
+                AND b.model = \(alias).model AND b.tokens = \(alias).tokens
+            """
+        let (open, close) = sum ? ("SUM(", ")") : ("", "")
+        let select = ["b.billed_input, MAX(\(alias).input - \(alias).cached, 0)", "b.billed_cached, \(alias).cached",
+                      "b.billed_output, \(alias).output"]
+            .map { "\(open)COALESCE(\($0))\(close)" }.joined(separator: ", ")
+        return (join, select)
     }
 
     private static func prepare(_ database: OpaquePointer, _ sql: String) throws -> OpaquePointer {

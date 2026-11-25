@@ -577,7 +577,8 @@ public actor UsageHistory {
         }
         var table = ModelRateTable(rates)
         for row in threads {
-            let cost = Self.codexCost(model: row.model, input: row.input, cached: row.cached, output: row.output, table: &table)
+            let cost = Self.codexCost(model: row.model, input: row.billedInput, cached: row.billedCached,
+                                          output: row.billedOutput, table: &table)
             points.append(UsageHistoryPoint(day: row.day, service: service, model: row.model,
                                             project: row.project, tokens: row.tokens, costUSD: cost))
         }
@@ -597,17 +598,26 @@ public actor UsageHistory {
             UsageSlotPoint(
                 quarter: row.quarter, service: ProviderID.codex.rawValue, model: row.model, project: row.project,
                 tokens: row.tokens,
-                costUSD: Self.codexCost(model: row.model, input: row.input, cached: row.cached, output: row.output, table: &table))
+                costUSD: Self.codexCost(model: row.model, input: row.billedInput, cached: row.billedCached,
+                                          output: row.billedOutput, table: &table))
         }
     }
 
-    /// Cached input is part of input; reasoning is part of output.
-    private static func codexCost(model: String?, input: Int64, cached: Int64, output: Int64,
+    /// Billed token sums (uncached input, cached input, output) already carry each request's tier
+    /// and long-context factors, so standard list rates price them. Published list prices cover
+    /// models the LiteLLM catalog lacks.
+    private static func codexCost(model: String?, input: Double, cached: Double, output: Double,
                                   table: inout ModelRateTable) -> Double? {
-        guard let model, input + output > 0, let rate = table.resolve(model) else { return nil }
-        return (Double(max(input - cached, 0)) * rate.inputPerMillion
-            + Double(cached) * rate.cacheReadPerMillion
-            + Double(output) * rate.outputPerMillion) / 1_000_000
+        guard let model, input + cached + output > 0 else { return nil }
+        let rates: (input: Double, cached: Double, output: Double)
+        if let rate = table.resolve(model) {
+            rates = (rate.inputPerMillion, rate.cacheReadPerMillion, rate.outputPerMillion)
+        } else if let list = CodexRequestPricing.listPrice(model) {
+            rates = (list.inputPerMillion, list.cachedInputPerMillion ?? list.inputPerMillion, list.outputPerMillion)
+        } else {
+            return nil
+        }
+        return (input * rates.input + cached * rates.cached + output * rates.output) / 1_000_000
     }
 
     // MARK: Sessions of one day
@@ -630,7 +640,8 @@ public actor UsageHistory {
                 var sum = threads[row.threadID] ?? Sum()
                 (sum.project, sum.first) = (row.project, row.firstEvent)
                 sum.tokens += row.tokens
-                if let cost = Self.codexCost(model: row.model, input: row.input, cached: row.cached, output: row.output, table: &table) {
+                if let cost = Self.codexCost(model: row.model, input: row.billedInput, cached: row.billedCached,
+                                          output: row.billedOutput, table: &table) {
                     sum.cost = (sum.cost ?? 0) + cost
                 }
                 if let model = row.model { sum.models[model, default: 0] += row.tokens }
