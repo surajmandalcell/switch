@@ -185,20 +185,6 @@ final class ProvidersAgentCLIsTests: XCTestCase {
         XCTAssertEqual(apiKey?.count, 12)
     }
 
-    // MARK: Augment
-
-    func testAugmentCredits() throws {
-        let credits = try json(#"{"usageUnitsRemaining":15,"usageUnitsConsumedThisBillingCycle":10,"usageUnitsAvailable":100,"usageBalanceStatus":"active"}"#)
-        let subscription = try json(#"{"planName":"Max Plan","billingPeriodEnd":"2026-06-09T00:00:00Z","email":"a@example.com"}"#)
-        let usage = try AugmentUsage.map(credits: credits, subscription: subscription)
-        XCTAssertEqual(usage.windows[0].usedPercent, 10)
-        XCTAssertEqual(usage.windows[0].detail, "10 / 100 credits")
-        XCTAssertEqual(usage.plan, "Max Plan")
-        XCTAssertEqual(usage.email, "a@example.com")
-        let noTotal = try AugmentUsage.map(credits: json(#"{"usageUnitsRemaining":15,"usageUnitsConsumedThisBillingCycle":10}"#), subscription: nil)
-        XCTAssertEqual(noTotal.windows[0].usedPercent, 40)
-    }
-
     // MARK: Amp
 
     func testAmpTierText() throws {

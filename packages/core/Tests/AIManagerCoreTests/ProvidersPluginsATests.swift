@@ -8,26 +8,10 @@ final class ProvidersPluginsATests: XCTestCase {
 
     func testCatalogListsAllPluginsAProviders() {
         let ids = Set(ProviderCatalog.pluginsA.map(\.id.rawValue))
-        XCTAssertEqual(ids.count, 21)
-        XCTAssertTrue(ids.isSuperset(of: ["abacus", "aerostack", "aiand", "aixy", "atlascloud", "bifrost", "chutes",
+        XCTAssertEqual(ids.count, 18)
+        XCTAssertTrue(ids.isSuperset(of: ["aerostack", "aiand", "aixy", "atlascloud", "bifrost", "chutes",
                                           "clawrouter", "clinepass", "cosmic", "deepgram", "deepinfra", "devpass",
-                                          "elevenlabs", "exa", "fireworks", "gitkraken", "helmcode", "huggingface",
-                                          "hyper", "langdock"]))
-    }
-
-    func testAbacus() throws {
-        let points = try json(#"{"success":true,"result":{"totalComputePoints":1000,"computePointsLeft":750}}"#)
-        let billing = try json(#"{"success":true,"result":{"nextBillingDate":"2026-07-01T00:00:00Z","currentTier":"Pro"}}"#)
-        let usage = try AbacusUsage.map(points, billing: billing)
-        XCTAssertEqual(usage.windows.first?.usedPercent, 25)
-        XCTAssertEqual(usage.windows.first?.detail, "250 / 1,000 credits")
-        XCTAssertEqual(usage.windows.first?.resetsAt, date("2026-07-01T00:00:00Z"))
-        XCTAssertGreaterThan(usage.windows.first?.windowMinutes ?? 0, 28 * 1440)
-        XCTAssertEqual(usage.plan, "Pro")
-        XCTAssertEqual(try AbacusUsage.map(points).windows.first?.windowMinutes, 43_200)
-        XCTAssertThrowsError(try AbacusUsage.map(try json(#"{"success":false,"error":"Session expired"}"#))) {
-            XCTAssertTrue(($0 as? ProviderError)?.needsSignIn == true)
-        }
+                                          "elevenlabs", "exa", "fireworks", "gitkraken", "huggingface", "hyper"]))
     }
 
     func testAerostack() throws {
@@ -271,25 +255,6 @@ final class ProvidersPluginsATests: XCTestCase {
         XCTAssertTrue(unlimited.windows.isEmpty)
     }
 
-    func testHelmcode() throws {
-        let quota = try json(#"""
-        {"periodStart":"2026-06-01T00:00:00Z","models":[
-          {"model":"qwen","cap":1000,"tokensUsed":250,"creditTokens":0,"periodEnd":"2026-07-01T00:00:00Z"},
-          {"model":"glm","cap":2000,"tokensUsed":1500,"windowHours":5}]}
-        """#)
-        let billing = try json(#"{"subscription":{"premium":true}}"#)
-        let credits = try json(#"{"balanceMicros":5000000,"currency":"eur"}"#)
-        let usage = try HelmcodeUsage.map(quota, billing: billing, credits: credits, organization: "Helmcode Cloud")
-        XCTAssertEqual(usage.windows.map(\.title), ["glm", "qwen"])
-        XCTAssertEqual(usage.windows.map(\.usedPercent), [75, 25])
-        XCTAssertEqual(usage.windows[0].windowMinutes, 300)
-        XCTAssertEqual(usage.windows[1].resetsAt, date("2026-07-01T00:00:00Z"))
-        XCTAssertEqual(usage.cost?.balance, 5)
-        XCTAssertEqual(usage.cost?.currency, "EUR")
-        let free = try HelmcodeUsage.map(quota, organization: "Helmcode Cloud")
-        XCTAssertEqual(free.windows.map(\.title), ["qwen"])
-    }
-
     func testHuggingface() throws {
         let usage = try HuggingfaceUsage.map(
             try json(#"""
@@ -313,21 +278,5 @@ final class ProvidersPluginsATests: XCTestCase {
         XCTAssertEqual(usage.cost?.balance, 12.5)
         XCTAssertEqual(usage.sections.first?.rows.first?.value, "12.5 HC")
         XCTAssertThrowsError(try HyperUsage.map(try json(#"{"balance":-1}"#)))
-    }
-
-    func testLangdock() throws {
-        let usage = try LangdockUsage.map(try json(#"""
-        [{"result":{"data":{"json":{"hasIncludedUsageLimits":true,"planUsage":{
-           "sessionUsageLimitsEnabled":true,"sessionUsagePercent":12.5,"sessionResetsAt":"2026-06-13T18:00:00Z",
-           "weeklyUsagePercent":130,"weeklyResetsAt":"2026-06-15T00:00:00Z"}}}}}]
-        """#))
-        XCTAssertEqual(usage.windows.map(\.id), ["session", "weekly"])
-        XCTAssertEqual(usage.windows.map(\.usedPercent), [12.5, 130])
-        XCTAssertEqual(usage.windows.map(\.windowMinutes), [300, 10_080])
-        XCTAssertEqual(usage.windows[0].resetsAt, date("2026-06-13T18:00:00Z"))
-        XCTAssertThrowsError(try LangdockUsage.map(try json(
-            #"[{"error":{"json":{"data":{"code":"UNAUTHORIZED"}}}}]"#))) {
-            XCTAssertTrue(($0 as? ProviderError)?.needsSignIn == true)
-        }
     }
 }

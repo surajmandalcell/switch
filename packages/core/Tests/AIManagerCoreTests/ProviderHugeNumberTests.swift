@@ -38,15 +38,7 @@ final class ProviderHugeNumberTests: XCTestCase {
         ("LiteLLM", #"""
         {"results":[{"date":"2026-09-20","breakdown":{"models":{"m":{"metrics":{"prompt_tokens":@,"completion_tokens":@,"total_tokens":@,"api_requests":@}}}}}]}
         """#, { LiteLLMUsage.modelActivity([$0]) as Any }),
-        ("ZoomMate", #"""
-        {"data":{"credit_status":{"budget_cap":@,"used_credit":@,"cycle_start_date":1780000000000,"cycle_end_date":1790000000000}}}
-        """#, { try ZoomMateUsage.map($0, history: [], now: now) }),
-        ("Raycast", #"{"remaining_balance_credits":@,"total_balance_credits":@}"#, { try RaycastUsage.map($0) }),
         ("Llmman", #"{"memory":@,"loaded":{"a":@},"stored":{"a":@,"b":@}}"#, { try LlmmanUsage.map($0, version: "1", hasKey: true) }),
-        ("Muse", #"""
-        {"weekly_weighted_used":"50","weekly_weighted_limit":"100","weekly_resets_at":1790000000,
-         "window_duration_secs":@,"window_weighted_used":"10","window_weighted_limit":"100","window_resets_at":1781000000}
-        """#, { MuseUsage.webQuota($0, now: now) as Any }),
         ("Cursor", #"""
         {"billingCycleStart":@,"billingCycleEnd":@,"enabled":true,
          "planUsage":{"limit":@,"remaining":@,"totalSpend":@,"totalPercentUsed":@,"autoPercentUsed":@,"apiPercentUsed":@},
@@ -59,7 +51,6 @@ final class ProviderHugeNumberTests: XCTestCase {
         {"rollingFiveHourLimit":{"limit":@,"used":@,"window":"%h","windowMinutes":@},
          "weeklyTokenLimit":{"percentRemaining":@,"windowDays":@}}
         """#, { try SyntheticUsage.map($0) }),
-        ("Abacus", #"{"success":true,"result":{"totalComputePoints":@,"computePointsLeft":@}}"#, { try AbacusUsage.map($0) }),
         ("Neuralwatt", #"""
         {"balance":{"credits_remaining_usd":@,"total_credits_usd":@,"credits_used_usd":@},
          "subscription":{"plan":"pro","kwh_included":@,"kwh_used":@,"current_period_start":@,"current_period_end":@}}
@@ -141,13 +132,5 @@ final class ProviderHugeNumberTests: XCTestCase {
             }
         }
         XCTAssertEqual(runs, Self.mappers.count * Self.bad.count)
-    }
-
-    func testMuseHugeWindowHasNoMinutes() throws {
-        let quota = try JSON(data: Data(#"""
-        {"weekly_weighted_used":"50","weekly_weighted_limit":"100","weekly_resets_at":1790000000,
-         "window_duration_secs":1e300,"window_weighted_used":"10","window_weighted_limit":"100","window_resets_at":1781000000}
-        """#.utf8))
-        XCTAssertNil(try XCTUnwrap(MuseUsage.webQuota(quota, now: Self.now)).primary.windowMinutes)
     }
 }

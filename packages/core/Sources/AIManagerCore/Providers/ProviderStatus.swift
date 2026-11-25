@@ -46,7 +46,6 @@ public enum ProviderStatusFetcher {
         "cursor": "https://status.cursor.com",
         "copilot": "https://www.githubstatus.com",
         "factory": "https://status.factory.ai",
-        "augment": "https://status.augmentcode.com",
         "huggingface": "https://status.huggingface.co",
     ]
 

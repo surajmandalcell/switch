@@ -5,43 +5,6 @@ import XCTest
 final class ProvidersApisBTests: XCTestCase {
     private func json(_ text: String) throws -> JSON { try JSON(data: Data(text.utf8)) }
 
-    func testMistralSpendCreditsAndSubscription() throws {
-        let usage = try json("""
-        {"currency":"EUR","completion":{"models":{"large::1":{
-          "input":[{"event_type":"api","billing_metric":"large","billing_group":"in","timestamp":"2026-10-02","value":1000,"value_paid":1000}],
-          "output":[{"event_type":"api","billing_metric":"large","billing_group":"out","timestamp":"2026-10-02","value":500,"value_paid":500}]}}},
-         "prices":[{"event_type":"api","billing_metric":"large","billing_group":"in","price":"0.000002"},
-                   {"event_type":"api","billing_metric":"large","billing_group":"out","price":"0.000006"}]}
-        """)
-        let credits = try json(#"{"wallet_amount":12.5,"credit_notes_amount":2.25,"ongoing_usage_balance":1.5,"currency":"EUR"}"#)
-        let html = #"<script>self.__next_f.push([1,"7:[\"$\",null,null,{\"budget\":{\"api_budget\":{\"usage_percentage\":1.1,\"initial_budget\":25.5,\"currency\":\"eur\",\"reset_at\":\"2026-10-01T00:00:00.000Z\",\"payg_enabled\":true}}}]\n"])</script>"#
-        let result = try MistralUsage.map(usage: usage, credits: credits, subscriptionHTML: html)
-        XCTAssertEqual(result.cost?.used ?? 0, 0.005, accuracy: 1e-9)
-        XCTAssertEqual(result.cost?.balance, 13.25)
-        XCTAssertEqual(result.cost?.currency, "EUR")
-        XCTAssertEqual(result.windows.first?.title, "Included API")
-        XCTAssertEqual(result.windows.first?.usedPercent ?? 0, 1.1, accuracy: 1e-9)
-        XCTAssertNotNil(result.windows.first?.resetsAt)
-        XCTAssertEqual(result.sections.first?.rows.first?.value, "1,000")
-    }
-
-    func testGroqActivity() throws {
-        let activity = try json("""
-        {"data":[{"organization_name":"Personal","model":"a","timestamp":1783900800,"num_requests":3,"n_context_tokens_total":100,"n_generated_tokens_total":40,"cost":0.01},
-                 {"organization_name":"Personal","model":"a","timestamp":1783814400,"num_requests":2,"n_context_tokens_total":50,"n_generated_tokens_total":10,"cost":0.02}]}
-        """)
-        let result = try GroqUsage.map(activity, now: Date(timeIntervalSince1970: 1_783_900_800 + 3600))
-        XCTAssertEqual(result.cost?.used ?? 0, 0.03, accuracy: 1e-9)
-        XCTAssertEqual(result.organization, "Personal")
-        XCTAssertEqual(result.sections[0].rows[1].value, "3")
-        XCTAssertEqual(result.sections[0].rows[2].value, "140")
-        XCTAssertEqual(result.sections[1].rows[1].value, "200")
-        let payload = Data(#"{"https://groq.com/organization":{"id":"org_123"}}"#.utf8).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-        XCTAssertEqual(GroqUsage.organizationID(jwt: "h.\(payload).s"), "org_123")
-    }
-
     func testBedrockCostExplorerMapping() throws {
         let page = try json("""
         {"ResultsByTime":[{"TimePeriod":{"Start":"2026-04-01","End":"2026-04-06"},"Groups":[
@@ -87,23 +50,6 @@ final class ProvidersApisBTests: XCTestCase {
         XCTAssertEqual(result.sections.first?.rows.first?.value, "2")
         XCTAssertEqual(result.sections.first?.rows[1].value, "succeeded")
         XCTAssertEqual(result.organization, "res.openai.azure.com")
-    }
-
-    func testCommandCodeCreditsAndPlan() throws {
-        let credits = try json("""
-        {"credits":{"monthlyCredits":8.5,"purchasedCredits":0,"premiumMonthlyCredits":0,"opensourceMonthlyCredits":0},
-         "windowLimits":{"fiveHour":{"cap":3,"used":0.75,"resetAt":1780000000000},"weekly":{"cap":15,"used":1.5,"resetAt":1780100000000}}}
-        """)
-        let sub = try json(#"{"success":true,"data":{"planId":"individual-pro","status":"active","currentPeriodEnd":"2026-11-01T00:00:00Z"}}"#)
-        let result = try CommandCodeUsage.map(credits: credits, subscription: sub)
-        XCTAssertEqual(result.windows.map(\.id), ["session", "weekly", "credits"])
-        XCTAssertEqual(result.windows[0].usedPercent, 25)
-        XCTAssertEqual(result.windows[0].windowMinutes, 300)
-        XCTAssertEqual(result.windows[1].usedPercent, 10)
-        XCTAssertEqual(result.windows[2].usedPercent ?? 0, 21.5 / 30 * 100, accuracy: 1e-9)
-        XCTAssertEqual(result.plan, "Pro")
-        XCTAssertEqual(try CommandCodeUsage.sessionCookie("abc"), "__Secure-commandcode_prod_.session_token=abc")
-        XCTAssertEqual(try CommandCodeUsage.sessionCookie("x=1; better-auth.session_token=tok"), "better-auth.session_token=tok")
     }
 
     func testWayfinderGateway() throws {
@@ -156,6 +102,6 @@ final class ProvidersApisBTests: XCTestCase {
 
     func testCatalogListsAllProviders() {
         XCTAssertEqual(ProviderCatalog.apisB.map(\.id.rawValue),
-                       ["mistral", "groq", "bedrock", "azureopenai", "commandcode", "wayfinder", "ibmbob", "warp", "abliteration", "soniox", "tripo", "siliconflow"])
+                       ["groq", "bedrock", "azureopenai", "wayfinder", "ibmbob", "warp", "abliteration", "soniox", "tripo", "siliconflow", "trustedrouter"])
     }
 }

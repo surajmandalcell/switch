@@ -3,23 +3,12 @@ import Foundation
 extension ProviderCatalog {
     static let hyper = ProviderSpec(
         id: "hyper", name: "Charm Hyper",
-        fields: [.init("apiKey", "API key", optional: true, env: ["HYPER_API_KEY"]),
-                 .init("cookie", "Cookie header", optional: true, placeholder: "Cookie header from hyper.charm.land")],
+        fields: [.init("apiKey", "API key", env: ["HYPER_API_KEY"])],
         dashboard: "https://hyper.charm.land",
         usage: { credential in
-            guard credential["apiKey"] != nil || credential["cookie"] != nil else {
-                throw ProviderError.missingCredential("Add a Charm Hyper API key or a Cookie header from hyper.charm.land.")
-            }
-            let session = credential["apiKey"] == nil
-            let headers = session ? ["Cookie": credential["cookie"] ?? ""] : HTTP.bearer(credential["apiKey"] ?? "")
-            let response = try await HTTP.send("https://hyper.charm.land/v1/credits", headers: headers)
-            if session, (300..<400).contains(response.status)
-                || (response.status == 200 && response.headers["content-type"]?.lowercased().contains("text/html") == true) {
-                throw ProviderError.unauthorized("Charm Hyper session expired. Paste a fresh Cookie header.")
-            }
-            try HTTP.check(response)
-            var usage = try HyperUsage.map(try response.json())
-            usage.plan = session ? "Browser session" : "API key"
+            var usage = try HyperUsage.map(try await HTTP.json("https://hyper.charm.land/v1/credits",
+                                                               headers: HTTP.bearer(try credential.require("apiKey"))))
+            usage.plan = "API key"
             return usage
         })
 }

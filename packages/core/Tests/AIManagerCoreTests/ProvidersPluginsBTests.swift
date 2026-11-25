@@ -8,8 +8,8 @@ final class ProvidersPluginsBTests: XCTestCase {
 
     func testCatalogRegistersEveryPluginsBProvider() {
         let ids = ProviderCatalog.pluginsB.map(\.id.rawValue)
-        XCTAssertEqual(ids.count, 19)
-        XCTAssertEqual(Set(ids).count, 19)
+        XCTAssertEqual(ids.count, 11)
+        XCTAssertEqual(Set(ids).count, 11)
         XCTAssertFalse(ids.contains("qwencloud-team"), "the qwencloud spec covers team plans")
         XCTAssertFalse(ids.contains("museai"))
     }
@@ -99,20 +99,6 @@ final class ProvidersPluginsBTests: XCTestCase {
         XCTAssertThrowsError(try LiteLLMUsage.map(key: json(#"{"info":{"team_id":"wrong"}}"#), user: nil, team: matched))
     }
 
-    func testLithosAI() throws {
-        let me = try json(#"{"user":{"email":"ada@example.com"},"activeOrganization":{"id":"o1","name":"Lab"}}"#)
-        let billing = try json(#"{"balanceNanos":12500000000,"hasCard":true,"onHold":false}"#)
-        let spend = try json(#"{"days":[{"day":"2026-09-20","nanos":1000000000},{"day":"2026-09-21","nanos":500000000}]}"#)
-        let usage = try LithosAIUsage.map(me: me, billing: billing, spend: spend, today: "2026-09-21")
-        XCTAssertEqual(usage.cost?.balance, 12.5)
-        XCTAssertEqual(usage.email, "ada@example.com")
-        XCTAssertEqual(usage.organization, "Lab")
-        let rows = Dictionary(uniqueKeysWithValues: usage.sections[0].rows.map { ($0.label, $0.value) })
-        XCTAssertEqual(rows["Today (UTC)"], "$0.50")
-        XCTAssertEqual(rows["This month (UTC)"], "$1.50")
-        XCTAssertEqual(rows["Payment card"], "Added")
-    }
-
     func testLlmmanMemory() throws {
         let node = try json("""
         {"memory":16000000000,"loaded":{"qwen:7b":4000000000,"llama:8b":2000000000},"stored":{"qwen:7b":4000000000,"x":1000000}}
@@ -144,33 +130,6 @@ final class ProvidersPluginsBTests: XCTestCase {
         XCTAssertEqual(usage.sections[1].rows.first?.value, "20 req · 1,000 tok · $0.50")
     }
 
-    func testLongCatActivePackAndFuel() throws {
-        let account = try LongCatUsage.unwrap(json(#"{"code":0,"data":{"name":"Acme"}}"#))
-        let summary = try LongCatUsage.unwrap(json(
-            #"{"code":200,"data":{"currentLot":{"status":"ACTIVE","totalToken":1000,"consumedToken":250}}}"#))
-        let fuel = try LongCatUsage.unwrap(json(
-            #"{"code":0,"data":{"totalQuota":400,"list":[{"availableToken":100,"expireTime":1790500000}]}}"#))
-        let usage = try LongCatUsage.map(account: account, summary: summary, tokenUsage: nil, fuel: fuel)
-        XCTAssertEqual(usage.windows.map(\.id), ["quota", "fuel"])
-        XCTAssertEqual(usage.windows[0].usedPercent, 25)
-        XCTAssertEqual(usage.windows[1].usedPercent, 75)
-        XCTAssertEqual(usage.windows[1].resetsAt, Date(timeIntervalSince1970: 1_790_500_000))
-        XCTAssertEqual(usage.organization, "Acme")
-        XCTAssertThrowsError(try LongCatUsage.unwrap(json(#"{"code":401}"#)))
-    }
-
-    func testManusCredits() throws {
-        let usage = try ManusUsage.map(json("""
-        {"data":{"totalCredits":1500,"freeCredits":300,"periodicCredits":600,"proMonthlyCredits":800,
-         "refreshCredits":200,"maxRefreshCredits":300,"nextRefreshTime":"2026-09-22T00:00:00Z"}}
-        """))
-        XCTAssertEqual(usage.windows.map(\.id), ["monthly", "daily"])
-        XCTAssertEqual(usage.windows[0].usedPercent, 25)
-        XCTAssertEqual(try XCTUnwrap(usage.windows[1].usedPercent), 100.0 / 3, accuracy: 0.01)
-        XCTAssertEqual(usage.windows[1].resetsAt, Fmt.iso("2026-09-22T00:00:00Z"))
-        XCTAssertThrowsError(try ManusUsage.map(json(#"{"data":{"other":1}}"#)))
-    }
-
     func testMoonshotBalance() throws {
         let usage = try MoonshotUsage.map(json("""
         {"code":0,"scode":"0x0","status":true,"data":{"available_balance":49.58,"voucher_balance":46.58,"cash_balance":3}}
@@ -199,8 +158,8 @@ final class ProvidersPluginsBTests: XCTestCase {
         XCTAssertEqual(usage.email, "ada@example.com")
         let file = Data(#"{"providers":{"meta":{"access_token":"dca:abc"}}}"#.utf8)
         let credential = ProviderCredential(files: [".config/muse/auth.json": file])
-        XCTAssertEqual(MuseUsage.token(credential), "dca:abc")
-        XCTAssertEqual(MuseUsage.token(ProviderCredential(fields: ["token": "dca:pasted"], files: credential.files)), "dca:pasted")
+        XCTAssertEqual(try MuseUsage.token(credential), "dca:abc")
+        XCTAssertEqual(try MuseUsage.token(ProviderCredential(fields: ["token": "dca:pasted"], files: credential.files)), "dca:pasted")
         let idle = try MuseUsage.map(json(#"{"is_subs_active":true,"subs_tier_name":"Free","subs_usage":null}"#))
         XCTAssertTrue(idle.windows.isEmpty)
         XCTAssertThrowsError(try MuseUsage.map(json(#"{"is_subs_active":false}"#)))
@@ -219,29 +178,6 @@ final class ProvidersPluginsBTests: XCTestCase {
         XCTAssertEqual(usage.windows[1].usedPercent, 25)
         XCTAssertEqual(usage.cost?.balance, 7.5)
         XCTAssertEqual(usage.plan, "Pro Max plan")
-    }
-
-    func testNotionWindowsAndIdentity() throws {
-        let usage = try NotionUsage.map(json("""
-        {"status":"active","resetsInSeconds":3600,
-         "window":{"used":20,"limit":100,"window":"5h"},
-         "billingPeriodWindow":{"used":150,"limit":100,"periodEndMs":1791000000000}}
-        """), identity: .init(email: "ada@example.com", workspaceName: "Acme", tier: "business"), now: now)
-        XCTAssertEqual(usage.windows.map(\.id), ["rolling", "monthly"])
-        XCTAssertEqual(usage.windows[0].windowMinutes, 300)
-        XCTAssertEqual(usage.windows[0].resetsAt, now.addingTimeInterval(3600))
-        XCTAssertEqual(usage.windows[1].usedPercent, 150)
-        XCTAssertEqual(usage.windows[1].resetsAt, Date(timeIntervalSince1970: 1_791_000_000))
-        XCTAssertEqual(usage.plan, "Business")
-        let spaces = try json("""
-        {"u1":{"notion_user":{"u1":{"value":{"value":{"id":"u1","email":"ada@example.com"}}}},
-               "space":{"s1":{"value":{"value":{"id":"s1","name":"Personal","subscription_tier":"free"}}},
-                        "s2":{"value":{"value":{"id":"s2","name":"Acme","subscription_tier":"business"}}}}}}
-        """)
-        let identity = try NotionUsage.identity(spaces: spaces, preferred: nil)
-        XCTAssertEqual(identity.workspaceID, "s2")
-        XCTAssertEqual(identity.email, "ada@example.com")
-        XCTAssertEqual(NotionUsage.dashed("0123456789abcdef0123456789abcdef"), "01234567-89ab-cdef-0123-456789abcdef")
     }
 
     func testNousSubscriptionCredits() throws {
@@ -307,55 +243,6 @@ final class ProvidersPluginsBTests: XCTestCase {
         XCTAssertThrowsError(try OpenRouterUsage.map(credits: nil, key: nil))
     }
 
-    func testPerplexityCreditPools() throws {
-        let usage = try PerplexityUsage.map(json("""
-        {"balance_cents":1500,"renewal_date_ts":1791000000,"current_period_purchased_cents":500,"total_usage_cents":1200,
-         "credit_grants":[{"type":"recurring","amount_cents":1000},
-                          {"type":"purchased","amount_cents":500},
-                          {"type":"promotional","amount_cents":300,"expires_at_ts":1795000000}]}
-        """), now: now)
-        XCTAssertEqual(usage.windows.map(\.id), ["credits", "bonus", "purchased"])
-        XCTAssertEqual(usage.windows[0].usedPercent, 100)
-        XCTAssertEqual(usage.windows[1].usedPercent, 0)
-        XCTAssertEqual(try XCTUnwrap(usage.windows[2].usedPercent), 40, accuracy: 0.01)
-        XCTAssertEqual(usage.windows[0].resetsAt, Date(timeIntervalSince1970: 1_791_000_000))
-        XCTAssertEqual(usage.plan, "Pro")
-        XCTAssertEqual(PerplexityUsage.cookies("abc").count, 4)
-        XCTAssertEqual(PerplexityUsage.cookies("Cookie: a=b; c=d"), ["a=b; c=d"])
-    }
-
-    func testPerplexityOrganizationPoolTakesOverAfterPersonalCreditsRunOut() throws {
-        let usage = try PerplexityUsage.map(json("""
-        {"balance_cents":3342.28,"renewal_date_ts":1794405600,"current_period_purchased_cents":0,
-         "total_usage_cents":24870.74,"org_pool_draws_cents":24371,"org_user_cap_cents":300000,
-         "is_org_pool_depleted":false,"credit_grants":[{"type":"recurring","amount_cents":500}]}
-        """))
-        XCTAssertEqual(usage.windows.map(\.id), ["org-credits", "credits"])
-        XCTAssertEqual(try XCTUnwrap(usage.windows.first?.usedPercent), 24371 / 27713.28 * 100, accuracy: 0.0001)
-        XCTAssertNil(usage.windows.first?.resetsAt, "Organization balance is not a resetting seat allowance.")
-        XCTAssertEqual(usage.windows.last?.usedPercent, 100)
-        let depleted = try PerplexityUsage.map(json("""
-        {"balanceCents":500,"renewalDateTs":1794405600,"currentPeriodPurchasedCents":0,
-         "totalUsageCents":1000,"orgPoolDrawsCents":100,"orgUserCapCents":10000,
-         "isOrgPoolDepleted":true,"creditGrants":[{"type":"recurring","amountCents":1000}]}
-        """))
-        XCTAssertEqual(depleted.windows.last?.id, "org-credits")
-        XCTAssertEqual(depleted.windows.last?.usedPercent, 100)
-        XCTAssertThrowsError(try PerplexityUsage.map(json("""
-        {"balance_cents":0,"renewal_date_ts":1794405600,"current_period_purchased_cents":0,
-         "total_usage_cents":0,"credit_grants":[],"org_pool_draws_cents":"invalid"}
-        """)))
-    }
-
-    func testPerplexityOrganizationCapAloneDoesNotProveZeroUsage() throws {
-        let fields = #""balance_cents":500,"renewal_date_ts":1794405600,"current_period_purchased_cents":0,"total_usage_cents":0,"credit_grants":[],"org_user_cap_cents":1000"#
-        let unknown = try PerplexityUsage.map(json("{\(fields)}"))
-        XCTAssertFalse(unknown.windows.contains { $0.id == "org-credits" })
-        let known = try PerplexityUsage.map(json("{\(fields),\"org_pool_draws_cents\":0}"))
-        XCTAssertEqual(known.windows.first?.id, "org-credits")
-        XCTAssertEqual(known.windows.first?.usedPercent, 0)
-    }
-
     func testPoeBalanceAndHistory() throws {
         let t = Int(now.timeIntervalSince1970 * 1_000_000) // microseconds
         let history = try [
@@ -369,50 +256,5 @@ final class ProvidersPluginsBTests: XCTestCase {
         XCTAssertEqual(rows["Last 24 hours"], "100 points · 1 requests · $0.003")
         XCTAssertEqual(rows["Last 30 days"], "400 points · 2 requests · $0.003")
         XCTAssertEqual(rows["Top model"], "Claude · 300 points")
-    }
-
-    func testQoderCredits() throws {
-        let usage = try QoderUsage.map(json("""
-        {"totalQuota":{"quotaSummary":{"usedValue":250,"limitValue":1000,"remainingValue":750,"usagePercentage":25,"unit":"credits"}},
-         "nextResetAt":1791000000}
-        """))
-        XCTAssertEqual(usage.windows.first?.usedPercent, 25)
-        XCTAssertEqual(usage.windows.first?.detail, "250 / 1,000 credits")
-        XCTAssertEqual(usage.windows.first?.resetsAt, Date(timeIntervalSince1970: 1_791_000_000))
-        let shared = try QoderUsage.map(json("""
-        {"total_quota":{"quota_summary":{"used_value":100,"limit_value":200}},
-         "shared_quota":{"quota_summary":{"used_value":100,"limit_value":800}}}
-        """))
-        XCTAssertEqual(shared.windows.first?.usedPercent, 20)
-    }
-
-    func testRaycastCredits() throws {
-        let usage = try RaycastUsage.map(json("""
-        {"remaining_balance_credits":"75","total_balance_credits":100,"next_credits_at":"2026-10-01T00:00:00Z",
-         "funding_subscription":{"tier":"pro_plus"}}
-        """))
-        XCTAssertEqual(usage.windows.first?.usedPercent, 25)
-        XCTAssertEqual(usage.windows.first?.detail, "75 / 100 credits left")
-        XCTAssertEqual(usage.windows.first?.resetsAt, Fmt.iso("2026-10-01T00:00:00Z"))
-        XCTAssertEqual(usage.plan, "Pro+")
-    }
-
-    func testReplicateInvoiceAndAccount() throws {
-        let html = """
-        <html><script id="react-component-props-1" type="application/json">
-        {"props":{"nested":[{"account":{"kind":"organization","username":"acme"}}]}}</script></html>
-        """
-        let account = try XCTUnwrap(ReplicateUsage.account(html: html))
-        XCTAssertEqual(account, .init(username: "acme", isOrganization: true))
-        let invoices = try json("""
-        {"invoices":[{"type":"monthly-usage","ended_before":"2026-08-01T00:00:00Z","total_cost_before_adjustments":"9.99"},
-                     {"type":"monthly-usage","ended_before":"2026-10-01T00:00:00Z","total_cost_before_adjustments":"12.34"}]}
-        """)
-        let usage = try ReplicateUsage.map(invoices: invoices, credit: json(#"{"unused_credit":"5.50"}"#),
-                                           account: account, now: now)
-        XCTAssertEqual(usage.cost?.used, 12.34)
-        XCTAssertEqual(usage.cost?.balance, 5.5)
-        XCTAssertEqual(usage.organization, "acme")
-        XCTAssertTrue(ReplicateUsage.signedOut("<title>Sign in | Replicate</title>"))
     }
 }

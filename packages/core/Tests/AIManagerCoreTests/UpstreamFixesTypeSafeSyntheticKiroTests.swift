@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import AIManagerCore
 
-/// CodexBar fixes ported to TypeSafe, Synthetic and Kiro. All data is synthetic.
+/// CodexBar fixes ported to Synthetic and Kiro. All data is synthetic.
 final class UpstreamFixesTypeSafeSyntheticKiroTests: XCTestCase {
     private func json(_ text: String) throws -> JSON { try JSON(data: Data(text.utf8)) }
 
@@ -11,88 +11,6 @@ final class UpstreamFixesTypeSafeSyntheticKiroTests: XCTestCase {
         var headers: [String: String] = [:]
         var body: Data?
         var calls = 0
-    }
-
-    // MARK: TypeSafe
-
-    private let overview = #"{"billing":{"plan":"free_plan","spent":0.01,"balance":4.98,"cycleLabel":"September 2026","credits":[{"amount":5,"remaining":4.98,"expiresAt":"2026-10-19T00:00:00Z"}]}}"#
-
-    private func typeSafe(status: Int, body: String = "", headers: [String: String] = [:], recorder: Recorder = Recorder()) async throws -> ProviderUsage {
-        try await TypeSafeUsage.fetch(cookie: "session=fixture") { url, sent in
-            recorder.url = url
-            recorder.headers = sent
-            return HTTPResponse(status: status, data: Data(body.utf8), headers: headers)
-        }
-    }
-
-    private func expect(_ matches: (ProviderError) -> Bool, _ message: String,
-                        _ work: () async throws -> ProviderUsage) async {
-        do {
-            _ = try await work()
-            XCTFail("\(message): no error")
-        } catch let error as ProviderError {
-            XCTAssertTrue(matches(error), "\(message): \(error)")
-        } catch {
-            XCTFail("\(message): \(error)")
-        }
-    }
-
-    private func isExpired(_ error: ProviderError) -> Bool { if case .unauthorized = error { return true }; return false }
-    private func isIntegration(_ error: ProviderError) -> Bool { if case .http = error { return true }; return false }
-
-    func testTypeSafeOverviewReplyAndSameOriginRequest() async throws {
-        let recorder = Recorder()
-        let usage = try await typeSafe(status: 200, body: overview, recorder: recorder)
-        XCTAssertEqual(usage.cost?.used, 0.01)
-        XCTAssertEqual(usage.cost?.balance, 4.98)
-        XCTAssertEqual(usage.cost?.period, "September 2026")
-        XCTAssertEqual(usage.plan, "Free")
-        XCTAssertEqual(usage.sections[0].rows.map(\.label), ["Spent (September 2026)", "Credit"])
-        XCTAssertEqual(recorder.url, "https://console.typesafe.ai/api/billing/overview")
-        XCTAssertEqual(recorder.headers["Cookie"], "session=fixture")
-        XCTAssertEqual(recorder.headers["Origin"], "https://console.typesafe.ai")
-        XCTAssertEqual(recorder.headers["Referer"], "https://console.typesafe.ai/billing")
-        XCTAssertEqual(recorder.headers["Sec-Fetch-Site"], "same-origin")
-        XCTAssertEqual(recorder.headers["Sec-Fetch-Mode"], "cors")
-        XCTAssertEqual(recorder.headers["Sec-Fetch-Dest"], "empty")
-        XCTAssertFalse(try XCTUnwrap(recorder.headers["User-Agent"]).contains("curl/"))
-    }
-
-    func testTypeSafeCrossOriginRefusalIsAFailureNotASignOut() async {
-        await expect(isIntegration, "403 cross-origin") {
-            try await typeSafe(status: 403, body: #"{"detail":"Cross-origin request refused"}"#)
-        }
-    }
-
-    func testTypeSafePlain401And403AreSignOuts() async {
-        for status in [401, 403] {
-            await expect(isExpired, "HTTP \(status)") { try await typeSafe(status: status) }
-        }
-    }
-
-    func testTypeSafeRedirects() async {
-        await expect(isExpired, "302 to login") { try await typeSafe(status: 302, headers: ["location": "/login?next=/billing"]) }
-        await expect(isExpired, "302 off site") { try await typeSafe(status: 302, headers: ["location": "https://evil.example/billing"]) }
-        await expect(isExpired, "302 to sso host path") { try await typeSafe(status: 302, headers: ["location": "https://console.typesafe.ai/sso/start"]) }
-        await expect(isIntegration, "302 to /billing") { try await typeSafe(status: 302, headers: ["location": "/billing"]) }
-        await expect(isIntegration, "302 to full /billing url") { try await typeSafe(status: 308, headers: ["location": "https://console.typesafe.ai/billing"]) }
-        await expect(isIntegration, "302 without location") { try await typeSafe(status: 302) }
-    }
-
-    func testTypeSafeHtmlBody() async {
-        await expect(isExpired, "login page") { try await typeSafe(status: 200, body: "<html><body><h1>Sign in</h1></body></html>") }
-        await expect(isIntegration, "other html") { try await typeSafe(status: 200, body: "<html><body>Maintenance</body></html>") }
-    }
-
-    func testTypeSafeBadJsonAndMissingBilling() async {
-        await expect({ if case .parse = $0 { return true }; return false }, "not json") { try await typeSafe(status: 200, body: "nope") }
-        await expect({ if case .parse = $0 { return true }; return false }, "no billing") { try await typeSafe(status: 200, body: #"{"data":{}}"#) }
-    }
-
-    func testTypeSafeStatusMapping() async {
-        await expect({ if case .rateLimited = $0 { return true }; return false }, "429") { try await typeSafe(status: 429) }
-        await expect({ if case .unavailable = $0 { return true }; return false }, "503") { try await typeSafe(status: 503) }
-        await expect(isIntegration, "404") { try await typeSafe(status: 404) }
     }
 
     // MARK: Synthetic

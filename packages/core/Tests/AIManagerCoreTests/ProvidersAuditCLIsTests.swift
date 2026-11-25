@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import AIManagerCore
 
-/// Parity audit for Factory, Kiro, Kimi, Kilo, Augment, Amp, Codebuff, Pi, Vertex AI, Windsurf,
+/// Parity audit for Factory, Kiro, Kimi, Kilo, Amp, Codebuff, Pi, Vertex AI, Windsurf,
 /// JetBrains AI and Warp. Each test asserts a value CodexBar shows that Switch used to drop.
 final class ProvidersAuditCLIsTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
@@ -142,18 +142,6 @@ final class ProvidersAuditCLIsTests: XCTestCase {
         XCTAssertNil(usage.plan)
     }
 
-    // MARK: Augment
-
-    func testAugmentRemainingStatusAndCycleRows() throws {
-        let credits = try json(#"{"usageUnitsRemaining":15,"usageUnitsConsumedThisBillingCycle":10,"usageUnitsAvailable":100,"usageBalanceStatus":"active"}"#)
-        let subscription = try json(#"{"planName":"Max Plan","billingPeriodEnd":"2026-06-09T00:00:00Z"}"#)
-        let usage = try AugmentUsage.map(credits: credits, subscription: subscription)
-        let all = rows(usage, nil)
-        XCTAssertEqual(all["Credits remaining"], "15")
-        XCTAssertEqual(all["Balance status"], "Active")
-        XCTAssertNotNil(all["Billing cycle ends"])
-    }
-
     // MARK: Amp
 
     func testAmpMonthlyAllowancesAndOrbPeriod() throws {
@@ -272,8 +260,7 @@ final class ProvidersAuditCLIsTests: XCTestCase {
         XCTAssertThrowsError(try WindsurfLocal.map(json("{}")))
     }
 
-    func testWindsurfSessionIsOptionalAndMissingDatabaseIsReported() {
-        XCTAssertTrue(ProviderCatalog.windsurf.fields.allSatisfy(\.optional))
+    func testWindsurfMissingDatabaseIsReported() {
         XCTAssertThrowsError(try WindsurfLocal.read(database: URL(fileURLWithPath: "/tmp/no-windsurf-\(UUID().uuidString).vscdb"))) {
             XCTAssertTrue(($0 as? ProviderError)?.needsSignIn == true)
         }

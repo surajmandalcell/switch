@@ -4,25 +4,15 @@ extension ProviderCatalog {
     static let alibaba = ProviderSpec(
         id: "alibaba", name: "Alibaba Coding Plan",
         fields: [
-            CredentialField("apiKey", "API key", optional: true,
-                            placeholder: "Often rejected by the console. Prefer the Cookie header.",
+            CredentialField("apiKey", "API key",
                             env: ["ALIBABA_CODING_PLAN_API_KEY", "ALIBABA_QWEN_API_KEY", "DASHSCOPE_API_KEY"]),
-            CredentialField("cookie", "Cookie header", optional: true,
-                            placeholder: "login_aliyunid_ticket, login_aliyunid_csrf, cna from the console",
-                            env: ["ALIBABA_CODING_PLAN_COOKIE"]),
             CredentialField("region", "Region", secure: false, optional: true, placeholder: "intl or cn"),
         ],
         dashboard: "https://modelstudio.console.alibabacloud.com/ap-southeast-1/?tab=coding-plan#/efm/coding_plan",
         statusPage: nil,
         usage: { credential in
-            let cookie = credential["cookie"]
-            guard cookie != nil || credential["apiKey"] != nil else {
-                throw ProviderError.missingCredential("Add a console Cookie header or an API key for Alibaba Coding Plan.")
-            }
-            func run(_ cn: Bool) async throws -> ProviderUsage {
-                if let cookie { return try await AlibabaUsage.fetchCookie(cookie, cn: cn) }
-                return try await AlibabaUsage.fetchKey(credential["apiKey"] ?? "", cn: cn)
-            }
+            let key = try credential.require("apiKey")
+            func run(_ cn: Bool) async throws -> ProviderUsage { try await AlibabaUsage.fetchKey(key, cn: cn) }
             if credential["region"]?.lowercased() == "cn" { return try await run(true) }
             do {
                 return try await run(false)
@@ -71,34 +61,6 @@ enum AlibabaUsage {
         return try map(try await HTTP.json(url, headers: headers,
                                            object: ["queryCodingPlanInstanceInfoRequest": ["commodityCode": s.commodity]]),
                        apiKey: true)
-    }
-
-    static func fetchCookie(_ cookie: String, cn: Bool) async throws -> ProviderUsage {
-        let s = site(cn: cn)
-        guard let token = await OneConsole.secToken(cookie: cookie, dashboard: s.dashboard, gateway: s.gateway, csrf: false) else {
-            throw ProviderError.unauthorized("Alibaba sign-in expired. Paste a fresh Cookie header from the console.")
-        }
-        let params: [String: Any] = [
-            "Api": api, "V": "1.0",
-            "Data": [
-                "queryCodingPlanInstanceInfoRequest": ["commodityCode": s.commodity, "onlyLatestOne": true],
-                "cornerstoneParam": [
-                    "feTraceId": UUID().uuidString.lowercased(), "feURL": s.dashboard, "protocol": "V2",
-                    "console": "ONE_CONSOLE", "productCode": "p_efm", "domain": s.domain, "consoleSite": s.site,
-                    "userNickName": "", "userPrincipalName": "", "xsp_lang": "en-US",
-                    "X-Anonymous-Id": Fmt.cookie("cna", in: cookie) ?? "",
-                ],
-            ],
-        ]
-        let paramsText = String(decoding: try JSONSerialization.data(withJSONObject: params), as: UTF8.self)
-        let csrf = Fmt.cookie("login_aliyunid_csrf", in: cookie) ?? Fmt.cookie("csrf", in: cookie)
-        var headers = ["Content-Type": "application/x-www-form-urlencoded", "Accept": "*/*", "Cookie": cookie,
-                       "X-Requested-With": "XMLHttpRequest", "User-Agent": OneConsole.userAgent,
-                       "Origin": s.gateway, "Referer": s.dashboard]
-        if let csrf { headers["x-xsrf-token"] = csrf; headers["x-csrf-token"] = csrf }
-        let url = "\(s.rpc)/data/api.json?action=\(s.rpcAction)&product=sfm_bailian&api=\(api)&_v=undefined"
-        let body = HTTP.form(["params": paramsText, "region": s.region, "sec_token": token])
-        return try map(try await HTTP.json(url, method: "POST", headers: headers, body: body))
     }
 
     private static let instanceKeys = ["codingPlanInstanceInfos", "coding_plan_instance_infos"]
@@ -166,13 +128,13 @@ enum AlibabaUsage {
             let message = str(["statusMessage", "status_msg", "message", "msg"]) ?? "status code \(status)"
             let lower = message.lowercased()
             if status == 401 || status == 403 || lower.contains("api key") || lower.contains("unauthorized") {
-                throw ProviderError.unauthorized("Alibaba rejected this credential. Paste a fresh Cookie header or key.")
+                throw ProviderError.unauthorized("Alibaba rejected this API key. Paste a fresh key.")
             }
             throw ProviderError.http(status, "Alibaba returned an error: \(message)")
         }
         let consoleOnly: ProviderError = apiKey
-            ? .unsupported("Alibaba Coding Plan quota is not available through API keys for this account or region. Paste a console Cookie header instead.")
-            : .unauthorized("Alibaba Coding Plan console login is required. Paste a fresh Cookie header from the console.")
+            ? .unsupported("Alibaba Coding Plan quota is not available through API keys for this account or region.")
+            : .unauthorized("Alibaba Coding Plan rejected this API key.")
         if str(["code", "status", "statusCode"])?.lowercased().contains("login") == true { throw consoleOnly }
         if let message = str(["message", "msg", "statusMessage"])?.lowercased() {
             if message.contains("log in") || message.contains("login") { throw consoleOnly }
@@ -205,5 +167,90 @@ enum AlibabaUsage {
         if let active = ["isActive", "active"].lazy.compactMap({ OneConsole.bool(item[$0]) }).first { return active ? 3 : -1 }
         let end = ["endTime", "periodEndTime", "expireTime", "expirationTime"].lazy.compactMap { OneConsole.date(item[$0]) }.first
         return end.map { $0 > now ? 1 : 0 } ?? 0
+    }
+}
+
+/// Aliyun OneConsole gateway helpers. Answers nest JSON inside JSON strings and move fields between
+/// shapes, so lookups walk the whole tree instead of fixed paths.
+enum OneConsole {
+    static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+
+    /// Replaces every string value that holds JSON with its parsed value.
+    static func expand(_ value: Any?) -> Any? {
+        switch value {
+        case let text as String:
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
+                  let parsed = try? JSONSerialization.jsonObject(with: Data(trimmed.utf8)) else { return value }
+            return expand(parsed)
+        case let dict as [String: Any]: return dict.mapValues { expand($0) ?? $0 }
+        case let array as [Any]: return array.map { expand($0) ?? $0 }
+        default: return value
+        }
+    }
+
+    /// First value `transform` accepts, checking each dictionary (keys in caller order) before its children.
+    static func first<T>(_ keys: [String], in value: Any?, arrays: Bool = true, _ transform: (Any?) -> T?) -> T? {
+        if let dict = value as? [String: Any] {
+            for key in keys { if let found = transform(dict[key]) { return found } }
+            for nested in dict.values { if let found = first(keys, in: nested, arrays: arrays, transform) { return found } }
+        } else if arrays, let list = value as? [Any] {
+            for nested in list { if let found = first(keys, in: nested, arrays: arrays, transform) { return found } }
+        }
+        return nil
+    }
+
+    /// First dictionary, depth first, that holds any of the keys.
+    static func find(_ keys: [String], in value: Any?) -> [String: Any]? {
+        if let dict = value as? [String: Any] {
+            if dict.keys.contains(where: keys.contains) { return dict }
+            for nested in dict.values { if let found = find(keys, in: nested) { return found } }
+        } else if let list = value as? [Any] {
+            for nested in list { if let found = find(keys, in: nested) { return found } }
+        }
+        return nil
+    }
+
+    static func string(_ value: Any?) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
+    }
+
+    static func dict(_ value: Any?) -> [String: Any]? { value as? [String: Any] }
+
+    static func double(_ value: Any?) -> Double? {
+        switch value {
+        case let number as NSNumber where !JSON.isBoolean(number): number.doubleValue
+        case let text as String: Double(text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ""))
+        default: nil
+        }
+    }
+
+    static func int(_ value: Any?) -> Int? { double(value).flatMap(Fmt.int) }
+
+    static func bool(_ value: Any?) -> Bool? {
+        switch value {
+        case let flag as Bool: return flag
+        case let number as NSNumber: return number.boolValue
+        case let text as String:
+            switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "1", "yes", "active", "valid", "normal": return true
+            case "false", "0", "no", "inactive", "invalid", "expired": return false
+            default: return nil
+            }
+        default: return nil
+        }
+    }
+
+    /// Epoch seconds or milliseconds, ISO-8601, "yyyy-MM-dd", "yyyy-MM-dd HH:mm" and "yyyy-MM-dd HH:mm:ss".
+    /// Numbers at or below `floor` are not dates.
+    static func date(_ value: Any?, above floor: Double = 0) -> Date? {
+        if let number = double(value) { return number > floor ? Fmt.epoch(number) : nil }
+        guard let text = value as? String else { return nil }
+        if let date = Fmt.iso(text) { return date }
+        let minute = DateFormatter()
+        minute.locale = Locale(identifier: "en_US_POSIX")
+        minute.dateFormat = "yyyy-MM-dd HH:mm"
+        return minute.date(from: text)
     }
 }
