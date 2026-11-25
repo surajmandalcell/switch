@@ -22,7 +22,7 @@ h1, h2, h3, p { margin: 0; }
 .kp-row + .kp-row { margin-top: 2px; }
 .kp-row:hover, .kp-row.hov { background: var(--kp-hover); }
 .kp-row.open { background: var(--kp-focus); }
-.kp-row:focus-visible { outline: 2px solid rgba(10, 132, 255, .6); outline-offset: -2px; }
+.kp-row:focus-visible { outline: none; background: var(--kp-focus); }
 .kp-check { position: absolute; left: 12px; top: 9px; width: 12px; height: 12px; opacity: 0; transform: scale(.4); transition: opacity .2s, transform .35s var(--spring); }
 .kp-row.on .kp-check { opacity: 1; transform: none; }
 .kp-spin { position: absolute; left: 11px; top: 8px; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; opacity: 0; }
