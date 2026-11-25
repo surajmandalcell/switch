@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/icon-dark.png">
-    <img src="docs/readme/icon-light.png" alt="Switch app icon" width="112" height="112">
-  </picture>
+  <img src="docs/readme/icon-light.png" alt="Switch app icon" width="112" height="112">
 </p>
 
 <p align="center">
@@ -18,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/samhqapp/switch/releases/latest"><b>Download for Mac</b></a> &nbsp;·&nbsp;
+  <a href="https://github.com/samhqapp/switch/releases/latest"><b>Download for Mac</b></a>, <a href="#windows"><b>Win</b></a>, <a href="#linux"><b>Linux</b></a> &nbsp;·&nbsp;
   <a href="https://switch.samhq.app">Website</a> &nbsp;·&nbsp;
   <a href="#installation">Installation</a> &nbsp;·&nbsp;
   <a href="https://github.com/samhqapp/switch/issues">Report a problem</a>
@@ -68,6 +65,17 @@ Then:
 
 </details>
 
+<a id="windows"></a>
+<details>
+<summary><b>Windows</b></summary>
+
+<br>
+
+The Windows app is in testing and comes with Switch 3.10. [Watch releases](https://github.com/samhqapp/switch/releases) to get it.
+
+</details>
+
+<a id="linux"></a>
 <details>
 <summary><b>Linux</b> (x86_64 or arm64)</summary>
 
