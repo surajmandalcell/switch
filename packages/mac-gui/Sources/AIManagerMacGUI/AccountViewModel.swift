@@ -1532,7 +1532,9 @@ final class AccountViewModel: ObservableObject {
     func canDeleteAccount(_ accountID: UUID) -> Bool {
         guard let current = status,
               let account = current.accounts.first(where: { $0.id == accountID }) else { return false }
-        return current.defaultAccountID(for: account.identity.providerID) != accountID
+        // Generic providers keep their live files, so the core only clears the default.
+        return account.usesGenericDetail
+            || current.defaultAccountID(for: account.identity.providerID) != accountID
             || deletionReplacement(for: accountID) != nil
     }
 
