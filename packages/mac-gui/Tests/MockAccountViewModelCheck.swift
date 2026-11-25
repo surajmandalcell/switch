@@ -240,7 +240,7 @@ struct MockAccountViewModelCheck {
         precondition(model.notice?.contains("No provider was contacted") == true)
         let zai = genericIDs[3]
         precondition(model.providerUsage[zai]?.isOutdated == true, "The outdated tag state is missing")
-        precondition(!model.canDeleteAccount(genericIDs[2]), "A provider's only default can be deleted")
+        precondition(model.canDeleteAccount(genericIDs[2]), "A generic provider's only default must stay deletable")
         precondition(model.providerUsage[genericIDs[2]] != nil)
 
         // Provider status dots and Claude activity use synthetic data and never contact a provider.

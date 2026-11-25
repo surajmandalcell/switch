@@ -30,13 +30,6 @@ struct DroidUsageKeyPanel: View {
 // Account detail and usage presentation for providers beyond Codex CLI: every generic provider,
 // plus the usage section of Grok Build and Claude Code profiles.
 
-extension AccountRecord {
-  /// Accounts shown with the generic detail view. Codex, Grok Build, and Claude Code keep their own.
-  var usesGenericDetail: Bool {
-    ![ProviderID.codex, .grokBuild, .droid, .claudeCode].contains(identity.providerID)
-  }
-}
-
 /// Provider icon tile used in lists: the brand's full app icon edge to edge on its own background,
 /// or its transparent mark with optical padding on the brand's tile color, or the template glyph on
 /// a neutral tile for a provider with no official icon. All tiles share one corner radius.
