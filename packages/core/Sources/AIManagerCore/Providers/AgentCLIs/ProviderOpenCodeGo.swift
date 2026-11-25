@@ -21,7 +21,9 @@ extension ProviderCatalog {
             var usage = try OpenCodeGoUsage.map(response)
             guard usage.availability != .noPlan else { return usage }
             // The local logs belong to the signed-in OpenCode, so only a live credential may read them.
-            if credential.isLive, let spend = OpenCodeGoUsage.localSpend(directory: OpenCodeGoUsage.dataDirectory()) {
+            if credential.isLive, let spend = await OpenCodeGoUsage.SpendScans.shared.spend(account: AgentCLIsKit.fingerprint(key), scan: {
+                OpenCodeGoUsage.localSpend(directory: OpenCodeGoUsage.dataDirectory())
+            }) {
                 usage.sections += [spend.section].compactMap { $0 }
                 usage.charts += [spend.chart].compactMap { $0 }
             }
@@ -30,6 +32,31 @@ extension ProviderCatalog {
 }
 
 enum OpenCodeGoUsage {
+    /// A large history can take minutes to scan, so the quota never waits more than `budget` for it.
+    /// A scan past the budget keeps running; until it ends, the account's previous spend is shown.
+    actor SpendScans {
+        static let shared = SpendScans()
+        private var last: [String: MajorsSpend.Report] = [:]
+        private var running: Set<String> = []
+
+        func spend(account: String, budget: Duration = .seconds(5),
+                   scan: @escaping @Sendable () -> MajorsSpend.Report?) async -> MajorsSpend.Report? {
+            if running.insert(account).inserted {
+                Task.detached { let report = scan(); await self.finish(account, report) }
+            }
+            let deadline = ContinuousClock.now + budget
+            while running.contains(account), ContinuousClock.now < deadline {
+                do { try await Task.sleep(for: .milliseconds(50)) } catch { break }
+            }
+            return last[account]
+        }
+
+        private func finish(_ account: String, _ report: MajorsSpend.Report?) {
+            last[account] = report
+            running.remove(account)
+        }
+    }
+
     static func apiKey(_ login: JSON?) -> String? {
         guard let login, login["type"].string != "oauth" else { return nil }
         return login["key"].string?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyText

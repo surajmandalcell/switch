@@ -17,6 +17,9 @@ enum PiUsage {
         var model: String?
         var input = 0, output = 0, cacheRead = 0, cacheWrite = 0, total = 0
         var cost = 0.0
+        /// The session header id (else the log name) and the project folder name (else the Pi folder slug).
+        var session: String?
+        var project: String?
     }
 
     private static let fractional: ISO8601DateFormatter = {
@@ -27,17 +30,37 @@ enum PiUsage {
     private static let plain = ISO8601DateFormatter()
 
     /// Assistant lines of one session log. Lines without a usage block are skipped without parsing.
-    static func entries(in data: Data) -> [Entry] {
+    static func entries(in data: Data, file: URL? = nil) -> [Entry] {
         let marker = Data(#""usage":{"#.utf8)
+        let header = Data(#""type":"session""#.utf8)
         var result: [Entry] = []
-        for line in data.split(separator: UInt8(ascii: "\n")) where line.range(of: marker) != nil {
+        // Pi keeps each session under a `--<encoded cwd>--` folder; the slug is only a fallback name.
+        let folder = file?.deletingLastPathComponent().lastPathComponent ?? ""
+        var session = file?.deletingPathExtension().lastPathComponent
+        var project = folder.count > 4 && folder.hasPrefix("--") && folder.hasSuffix("--")
+            ? String(folder.dropFirst(2).dropLast(2)) : nil
+        var headerSeen = false
+        for line in data.split(separator: UInt8(ascii: "\n")) where line.range(of: marker) != nil || line.range(of: header) != nil {
             let object = JSON((try? JSONSerialization.jsonObject(with: Data(line))))
+            if object["type"].string == "session" {
+                // The first header owns the session; a copied session keeps its own new header.
+                if !headerSeen {
+                    headerSeen = true
+                    session = object["id"].string ?? session
+                    if let cwd = object["cwd"].string, !cwd.isEmpty {
+                        let name = URL(fileURLWithPath: cwd).lastPathComponent
+                        project = name.isEmpty ? cwd : name
+                    }
+                }
+                continue
+            }
             let message = object["message"]
             guard object["type"].string == "message", message["role"].string == "assistant",
                   let stamp = object["timestamp"].string, let date = fractional.date(from: stamp) ?? plain.date(from: stamp)
             else { continue }
             let usage = message["usage"]
-            var entry = Entry(id: object["id"].string, date: date, model: message["model"].string ?? object["model"].string)
+            var entry = Entry(id: object["id"].string, date: date, model: message["model"].string ?? object["model"].string,
+                              session: session, project: project)
             entry.input = usage["input"].int ?? 0
             entry.output = usage["output"].int ?? 0
             entry.cacheRead = usage["cacheRead"].int ?? 0
@@ -74,8 +97,25 @@ enum PiUsage {
             }
             return UsageSection(title, rows)
         }
+        let recent = unique.filter { $0.date >= month && $0.date <= now }
+        // Every project is listed, so the project rows add up to the 30-day total. Messages repeated by a
+        // copied session were dropped above, so each one counts in one session only.
+        func rows(_ groups: [String: [Entry]], by order: ([Entry], [Entry]) -> Bool, limit: Int) -> [UsageRow] {
+            groups.sorted { order($0.value, $1.value) }.prefix(limit).map { name, items in
+                let cost = items.reduce(0) { $0 + $1.cost }
+                return UsageRow(name, (cost > 0 ? "\(Fmt.money(cost)) · " : "")
+                    + "\(Fmt.number(Double(items.reduce(0) { $0 + $1.total }))) tokens")
+            }
+        }
+        let spend = { (items: [Entry]) in (items.reduce(0) { $0 + $1.cost }, items.reduce(0) { $0 + $1.total }) }
+        let projects = rows(Dictionary(grouping: recent) { $0.project ?? "Unknown project" },
+                            by: { spend($0) > spend($1) }, limit: .max)
+        let sessions = rows(Dictionary(grouping: recent) { "\($0.project ?? "Unknown project") · \(($0.session ?? "unknown").prefix(8))" },
+                            by: { ($0.map(\.date).max() ?? .distantPast) > ($1.map(\.date).max() ?? .distantPast) }, limit: 10)
         return ProviderUsage(sections: [section("Today", unique.filter { $0.date >= today && $0.date <= now }),
-                                        section("Last 30 days", unique.filter { $0.date >= month && $0.date <= now })])
+                                        section("Last 30 days", recent),
+                                        UsageSection("Projects, last 30 days", projects),
+                                        UsageSection("Recent sessions", sessions)])
     }
 
     static func sessionsDirectory(environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -128,7 +168,7 @@ enum PiUsage {
                 let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
                 guard values?.isRegularFile == true, (values?.contentModificationDate ?? .distantPast) >= cutoff,
                       let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { continue }
-                entries += self.entries(in: data)
+                entries += self.entries(in: data, file: url)
             }
         }
         return map(entries, now: now)
