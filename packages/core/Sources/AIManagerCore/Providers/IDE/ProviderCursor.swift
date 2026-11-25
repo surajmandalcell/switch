@@ -33,12 +33,15 @@ extension ProviderCatalog {
                     changed = true
                     return renewed.access
                 },
-                call: { token in try await CursorUsage.load(token: token, membership: rows["cursorAuth/stripeMembershipType"]) })
+                call: { token in
+                    try await CursorUsage.load(token: token, membership: rows["cursorAuth/stripeMembershipType"],
+                                               localCache: credential.isLive)
+                })
             let mapped = try CursorUsage.map(
                 usage: fetched.usage, plan: fetched.plan, credits: fetched.credits,
                 membership: rows["cursorAuth/stripeMembershipType"], email: rows["cursorAuth/cachedEmail"],
                 grokBot: fetched.grokBot, stripeCents: fetched.stripeCents, requests: fetched.requests,
-                summary: fetched.summary, spend: fetched.spend)
+                summary: fetched.summary, spend: fetched.spend, merged: fetched.merged)
             guard changed else { return FetchResult(mapped) }
             var updated = credential
             updated.isLive = false
@@ -92,19 +95,35 @@ enum CursorUsage {
         var stripeCents = 0.0
         var requests: JSON?, summary: JSON?
         var spend: MajorsSpend.Report?
+        var merged: Merged?
+    }
+
+    /// An account whose Cursor, X and Grok plans are merged (`GetPlanInfo.isMerged`): its prepaid credits
+    /// and the dashboard's Additional usage card replace credit grants, the Stripe balance and on-demand.
+    struct Merged {
+        var credits: JSON?, status: JSON?
     }
 
     /// The primary usage call must succeed; every other call only adds rows and may fail alone.
-    static func load(token: String, membership: String? = nil) async throws -> Fetched {
+    /// `localCache`: this Mac's live sign-in, which alone may fall back to the Tokscale spend cache.
+    static func load(token: String, membership: String? = nil, localCache: Bool = false) async throws -> Fetched {
         async let plan = try? rpc("GetPlanInfo", token: token)
         async let credits = try? rpc("GetCreditGrantsBalance", token: token)
         async let grokBot = try? rpc("GetSandUsageStatus", token: token)
         let usage = try await rpc("GetCurrentPeriodUsage", token: token)
         var fetched = Fetched(usage: usage, plan: await plan, credits: await credits, grokBot: await grokBot)
-        guard let session = session(token) else { return fetched }
+        let isMerged = fetched.plan?["isMerged"].bool == true
+        async let mergedCredits: JSON? = isMerged ? try? rpc("GetComplatCreditBalance", token: token) : nil
+        guard let session = session(token) else {
+            if isMerged { fetched.merged = Merged(credits: await mergedCredits) }
+            if localCache { fetched.spend = tokscaleSpend() }
+            return fetched
+        }
         let cookie = ["Cookie": session.cookie]
         async let stripe = try? HTTP.json("https://cursor.com/api/auth/stripe", headers: cookie)
         async let spend = spendSection(cookie: cookie)
+        async let status: JSON? = isMerged
+            ? try? HTTP.json("https://cursor.com/api/dashboard/v2/usage-status?scope=user", headers: cookie) : nil
         // The summary names the seat's membership (GetPlanInfo can say Pro for a Team or Enterprise seat).
         fetched.summary = try? await HTTP.json("https://cursor.com/api/usage-summary", headers: cookie)
         let planName = fetched.plan?.at("planInfo.planName").string
@@ -116,6 +135,8 @@ enum CursorUsage {
         }
         fetched.stripeCents = stripeCents(await stripe)
         fetched.spend = await spend
+        if fetched.spend == nil, localCache { fetched.spend = tokscaleSpend() }
+        if isMerged { fetched.merged = Merged(credits: await mergedCredits, status: await status) }
         return fetched
     }
 
@@ -253,7 +274,7 @@ enum CursorUsage {
     /// on-demand spend, per-pool percentages, Grok Bot and request counts, and CodexBar's team fallbacks.
     static func map(usage: JSON, plan planInfo: JSON?, credits: JSON?, membership: String?, email: String?,
                     grokBot: JSON? = nil, stripeCents: Double = 0, requests: JSON? = nil, summary: JSON? = nil,
-                    spend: MajorsSpend.Report? = nil) throws -> ProviderUsage {
+                    spend: MajorsSpend.Report? = nil, merged: Merged? = nil) throws -> ProviderUsage {
         let seat = seatMembership(summary: summary, local: membership)
         let routedPlan = seatPlan(planInfo?.at("planInfo.planName").string, membership: seat)
         let routed = wantsFallback(usage: usage, planName: routedPlan, planInfoUnavailable: planInfo == nil)
@@ -297,6 +318,13 @@ enum CursorUsage {
             windows.append(window("total", "Total usage", percent))
         } else if !hasPools {
             throw ProviderError.unavailable("Cursor returned no usage limit.")
+        }
+        if let merged {
+            // One weekly pool covers Cursor, X and Grok: no per-model or Grok Bot rows.
+            return ProviderUsage(
+                windows: windows, cost: mergedCost(merged), sections: [spend?.section].compactMap { $0 },
+                plan: self.plan(resolvedPlanName(name, membership: seat)), email: email,
+                charts: [spend?.chart].compactMap { $0 })
         }
         if let auto { windows.append(window("auto", "Cursor models", auto)) }
         if let api { windows.append(window("api", "Other models", api)) }
@@ -420,6 +448,23 @@ enum CursorUsage {
         guard hasOnDemand || creditCents != nil else { return nil }
         return UsageCost(used: hasOnDemand ? used / 100 : nil, limit: limit > 0 ? limit / 100 : nil,
                          balance: creditCents.map { $0 / 100 }, period: hasOnDemand ? "On-demand" : nil, resetsAt: reset)
+    }
+
+    /// A merged account's prepaid credits (a reported $0 stays) and this month's extra usage past the weekly
+    /// pool: against its limit when capped, the amount alone when uncapped, no row when off or limited to $0.
+    static func mergedCost(_ merged: Merged) -> UsageCost? {
+        let balance = merged.credits?["usdRemainingCents"].double.map { max(0, $0) / 100 }
+        let monthly = merged.status?["monthlyUsage"] ?? JSON(nil)
+        var used: Double?, limit: Double?, reset: Date?
+        if (merged.status?["availability"].string ?? "available") == "available", monthly.exists,
+           monthly["additionalUsageOff"].bool != true, monthly["limitCents"].double != 0 {
+            used = max(0, monthly["usedCents"].double ?? 0) / 100
+            limit = monthly["limitCents"].double.flatMap { $0 > 0 ? $0 / 100 : nil }
+            reset = limit == nil ? nil : monthly["resetsAt"].date
+        }
+        guard balance != nil || used != nil else { return nil }
+        return UsageCost(used: used, limit: limit, balance: balance, period: used == nil ? nil : "Extra usage",
+                         resetsAt: reset)
     }
 
     /// Credit grants left plus the prepaid Stripe balance, or nil when the account holds neither.
