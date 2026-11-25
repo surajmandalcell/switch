@@ -503,6 +503,16 @@ final class ProviderAccountStoreTests: XCTestCase {
 
     // MARK: AccountManager wiring
 
+    /// A saved account of a provider that left the catalog loads hidden, and its vault file stays on disk.
+    func testRemovedProviderAccountsLoadHiddenAndKeepTheirFiles() async throws {
+        let account = try await makeManager([secretSpec]).addProviderAccount(
+            providerID: ProviderID(rawValue: "test-secret"), fields: ["apiKey": "sk-1"])
+        let status = try await makeManager([]).status()
+        XCTAssertFalse(status.accounts.contains { $0.id == account.id })
+        let vault = paths.vaultRoot.appending(path: "test-secret/\(account.id.uuidString).json")
+        XCTAssertTrue(fileManager.fileExists(atPath: vault.path))
+    }
+
     func testManagerStatusListsStoreAccountsDefaultsAndReorders() async throws {
         let manager = try makeManager([secretSpec, filesSpec()])
         let grok = try await addGrokAccount(manager)

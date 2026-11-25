@@ -8,10 +8,9 @@ final class ProvidersPluginsCTests: XCTestCase {
 
     func testCatalogListsEveryProvider() {
         let ids = Set(ProviderCatalog.pluginsC.map(\.id.rawValue))
-        XCTAssertEqual(ids, ["sailresearch", "sakana", "sofya", "sub2api", "synthetic", "t3chat", "tavily", "tinyapi",
-                             "typesafe", "v0", "venice", "vercel", "workbuddy", "xai", "xapi", "xkiro", "zai", "zed",
-                             "zenmux", "zoommate"])
-        XCTAssertEqual(ProviderCatalog.pluginsC.count, 20)
+        XCTAssertEqual(ids, ["sailresearch", "sofya", "sub2api", "synthetic", "tavily", "v0", "venice", "vercel",
+                             "xai", "xkiro", "zai", "zenmux"])
+        XCTAssertEqual(ProviderCatalog.pluginsC.count, 12)
     }
 
     func testTavily() throws {
@@ -23,12 +22,6 @@ final class ProvidersPluginsCTests: XCTestCase {
         XCTAssertEqual(usage.windows[1].usedPercent, 30)
         XCTAssertEqual(usage.plan, "Researcher")
         XCTAssertThrowsError(try TavilyUsage.map(json(#"{"account":{}}"#)))
-    }
-
-    func testTinyApi() throws {
-        let usage = try TinyApiUsage.map(json(#"{"success":true,"data":{"totalAvailable":42.5}}"#))
-        XCTAssertEqual(usage.sections.first?.rows.first?.value, "42.5 credits")
-        XCTAssertThrowsError(try TinyApiUsage.map(json(#"{"success":false}"#)))
     }
 
     func testVercel() throws {
@@ -47,13 +40,6 @@ final class ProvidersPluginsCTests: XCTestCase {
         XCTAssertEqual(usd.cost?.balance, 5.5)
         let blocked = try VeniceUsage.map(json(#"{"canConsume":false,"balances":{"diem":1}}"#))
         XCTAssertEqual(blocked.windows[0].usedPercent, 100)
-    }
-
-    func testXApi() throws {
-        XCTAssertEqual(try XApiUsage.accountID(json(#"{"account":{"id":1234567}}"#)), "1234567")
-        XCTAssertThrowsError(try XApiUsage.accountID(json(#"{"account":{"id":"../x"}}"#)))
-        let usage = try XApiUsage.map(json(#"{"credits":{"balance":10.5},"freeCredits":{"balance":2}}"#))
-        XCTAssertEqual(usage.cost?.balance, 12.5)
     }
 
     func testZenMux() throws {
@@ -97,29 +83,6 @@ final class ProvidersPluginsCTests: XCTestCase {
         XCTAssertEqual(usage.cost?.balance, 25)
         XCTAssertEqual(usage.cost?.used ?? 0, 12.34, accuracy: 0.0001)
         XCTAssertEqual(usage.cost?.period, "Last 30 days")
-    }
-
-    func testSakana() throws {
-        let page = """
-        <div data-slot="card"><div data-slot="card-title"><span>Standard</span><span class="price">$20/mo</span></div></div>
-        <p class="t">5-hour</p><div><p class="u">12.5% used</p><p class="r">Resets on October 14, 2026 at 3:00 PM</p></div>
-        <p class="t">Weekly</p><div><p class="u">40% used</p><p class="r">Resets on October 19, 2026 at 12:00 AM</p></div>
-        """
-        let payg = """
-        <h2 class="a">Credit balance</h2><div><p class="text-2xl tabular-nums">$12.50</p></div>
-        <h2>Usage</h2><span class="m">Total<!-- -->: <!-- -->$3.25</span>
-        """
-        let usage = try SakanaUsage.map(html: page, paygHTML: payg)
-        XCTAssertEqual(usage.windows.map(\.id), ["session", "weekly"])
-        XCTAssertEqual(usage.windows[0].usedPercent, 12.5)
-        XCTAssertEqual(usage.windows[0].windowMinutes, 300)
-        XCTAssertEqual(usage.windows[0].resetsAt, utc("2026-10-14T15:00:00Z"))
-        XCTAssertEqual(usage.windows[1].usedPercent, 40)
-        XCTAssertEqual(usage.windows[1].resetsAt, utc("2026-10-19T00:00:00Z"))
-        XCTAssertEqual(usage.plan, "Standard $20/mo")
-        XCTAssertEqual(usage.cost?.balance, 12.5)
-        XCTAssertEqual(usage.cost?.used, 3.25)
-        XCTAssertThrowsError(try SakanaUsage.map(html: "<html>Sign in</html>"))
     }
 
     func testSofya() throws {
@@ -178,23 +141,6 @@ final class ProvidersPluginsCTests: XCTestCase {
         XCTAssertThrowsError(try SyntheticUsage.map(json("{}")))
     }
 
-    func testT3Chat() throws {
-        let lines = """
-        {"json":[0,0,[]]}
-        {"json":[2,0,[[{"subTier":"pro","subscription":{"productId":"pro","productName":"pro","status":"active","currentPeriodStart":1778084609000,"currentPeriodEnd":1780763009000,"canceledAt":null},"lifetimeBalance":0,"usageBand":"max","usageFourHourPercentage":12.5,"usageMonthPercentage":34.25,"usageFourHourNextResetAt":1779366216920}]]]}
-        """
-        let usage = try T3ChatUsage.map(jsonLines: lines)
-        XCTAssertEqual(usage.windows.map(\.id), ["base", "overage"])
-        XCTAssertEqual(usage.windows[0].usedPercent, 12.5)
-        XCTAssertEqual(usage.windows[0].windowMinutes, 240)
-        XCTAssertEqual(usage.windows[0].resetsAt, Date(timeIntervalSince1970: 1_779_366_216.92))
-        XCTAssertEqual(usage.windows[0].detail, "Base - max")
-        XCTAssertEqual(usage.windows[1].usedPercent, 34.25)
-        XCTAssertEqual(usage.windows[1].resetsAt, Date(timeIntervalSince1970: 1_780_763_009))
-        XCTAssertEqual(usage.plan, "Pro")
-        XCTAssertThrowsError(try T3ChatUsage.map(jsonLines: "{}"))
-    }
-
     func testV0() throws {
         let usage = try V0Usage.map(
             billing: json(#"{"billingType":"token","data":{"balance":{"total":1000,"remaining":750},"billingCycle":{"end":1790000000},"onDemand":{"balance":5}}}"#),
@@ -207,48 +153,6 @@ final class ProvidersPluginsCTests: XCTestCase {
                                      rateLimit: json(#"{"limit":10}"#))
         XCTAssertEqual(legacy.windows.map(\.id), ["billing"])
         XCTAssertEqual(legacy.windows[0].usedPercent, 25)
-    }
-
-    func testWorkBuddy() throws {
-        let usage = try WorkBuddyUsage.map(json("""
-        {"code":0,"msg":"OK","data":{"SubscriptionPackageName":"Free","Packages":[
-        {"CycleTotalCapacity":"500","CycleRemainCapacity":"450","CycleFrozenCapacity":"20","CapacityUnit":"credits"},
-        {"CycleTotalCapacity":"9","CycleRemainCapacity":"9","CapacityUnit":"tokens"}]}}
-        """))
-        XCTAssertEqual(usage.windows[0].usedPercent, 10)
-        XCTAssertEqual(usage.windows[0].detail, "450 / 500 credits left")
-        XCTAssertEqual(usage.plan, "Free")
-        XCTAssertEqual(usage.sections[0].rows, [UsageRow("Reserved", "20")])
-        let empty = try WorkBuddyUsage.map(json(#"{"code":0,"data":{"Packages":[{"CycleTotalCapacity":"0","CycleRemainCapacity":"0","CapacityUnit":"credits"}]}}"#))
-        XCTAssertTrue(empty.windows.isEmpty)
-        XCTAssertEqual(empty.sections[0].rows.map(\.label), ["Left", "Total"])
-        XCTAssertThrowsError(try WorkBuddyUsage.map(json(#"{"code":401}"#)))
-    }
-
-    func testWorkBuddyRewardsStayInsideTotalAndExpireWithoutResettingIt() throws {
-        let usage = try WorkBuddyUsage.map(json("""
-        {"code":0,"data":{"Packages":[
-         {"CycleTotalCapacity":"2000","CycleRemainCapacity":"1500","CapacityUnit":"credits"},
-         {"CycleTotalCapacity":"2139","CycleRemainCapacity":"621","CapacityUnit":"credits"}],
-         "CreditGroups":[{"Kind":"benefit","CycleTotalCapacity":"2139","CycleRemainCapacity":"621","CapacityUnit":"credits"}]}}
-        """))
-        XCTAssertEqual(usage.windows.map(\.id), ["credits", "rewards"])
-        XCTAssertEqual(try XCTUnwrap(usage.windows[0].usedPercent), (4139 - 2121) / 4139.0 * 100, accuracy: 0.00001)
-        XCTAssertEqual(try XCTUnwrap(usage.windows[1].usedPercent), (2139 - 621) / 2139.0 * 100, accuracy: 0.00001)
-        XCTAssertNil(usage.windows[1].resetsAt)
-        let listings = try [json("""
-        {"Accounts":[{"PackageCode":"paid","CapacityUnit":"credits","CycleEndTime":"2026-11-24 12:44:13"}]}
-        """), json("""
-        {"Accounts":[
-         {"PackageCode":"trial","CapacityUnit":"credits","CycleEndTime":"2026-10-31 23:59:59"},
-         {"PackageCode":"TCACA_code_007_nzdH5h4Nl0","CapacityUnit":"credits","CycleEndTime":"2026-11-01 23:59:59","CycleCapacityRemain":"0"},
-         {"PackageCode":"TCACA_code_007_nzdH5h4Nl0","CapacityUnit":"credits","CycleEndTime":"2026-11-11 23:09:21","CycleCapacityRemain":"21"},
-         {"PackageCode":"TCACA_code_007_nzdH5h4Nl0","CapacityUnit":"credits","CycleEndTime":"2026-11-18 17:11:10","CycleCapacityRemain":"600"}]}
-        """)]
-        let now = utc("2026-10-30T00:00:00Z")
-        XCTAssertEqual(WorkBuddyUsage.nextReset(listings, now: now), utc("2026-11-24T04:44:14Z"))
-        XCTAssertEqual(WorkBuddyUsage.rewardExpiry(listings, now: now), utc("2026-11-11T15:09:22Z"))
-        XCTAssertNil(try WorkBuddyUsage.nextReset([json(#"{"Accounts":[{"PackageCode":"TCACA_code_007_nzdH5h4Nl0","CapacityUnit":"credits","CycleEndTime":"2026-11-18 17:11:10"}]}"#)], now: now))
     }
 
     func testXKiro() throws {
@@ -311,31 +215,5 @@ final class ProvidersPluginsCTests: XCTestCase {
         XCTAssertEqual(usage.cost?.balance, 88.5)
         XCTAssertEqual(usage.cost?.currency, "CNY")
         XCTAssertEqual(usage.cost?.used, 11.5)
-    }
-
-    func testZed() throws {
-        let usage = try ZedUsage.map(json("""
-        {"plan":"zed_pro","current_usage":{"token_spend":{"spend_in_cents":250,"limit_in_cents":1000},
-        "edit_predictions":{"used":12,"limit":100}}}
-        """))
-        XCTAssertEqual(usage.windows[0].usedPercent, 12)
-        XCTAssertEqual(usage.cost?.used, 2.5)
-        XCTAssertEqual(usage.cost?.limit, 10)
-        XCTAssertEqual(usage.plan, "Zed Pro")
-        let unlimited = try ZedUsage.map(json(#"{"plan":"zed_free","current_usage":{"edit_predictions":{"used":3,"limit":"unlimited"}}}"#))
-        XCTAssertTrue(unlimited.windows.isEmpty)
-        XCTAssertEqual(unlimited.sections[0].rows.first?.value, "Unlimited")
-        XCTAssertNil(unlimited.cost)
-    }
-
-    func testZoomMate() throws {
-        let usage = try ZoomMateUsage.map(json(#"{"data":{"credit_status":{"budget_cap":100,"used_credit":25,"remaining_credit":75,"cycle_end_date":1790000000000}}}"#))
-        XCTAssertEqual(usage.windows[0].usedPercent, 25)
-        XCTAssertEqual(usage.windows[0].resetsAt, Date(timeIntervalSince1970: 1_790_000_000))
-        let unlimited = try ZoomMateUsage.map(json(#"{"data":{"credit_status":{"is_unlimited":true}}}"#))
-        XCTAssertTrue(unlimited.windows.isEmpty)
-        XCTAssertEqual(ZoomMateUsage.bearer("abc"), "Bearer abc")
-        XCTAssertEqual(ZoomMateUsage.bearer("Bearer abc"), "Bearer abc")
-        XCTAssertThrowsError(try ZoomMateUsage.map(json("{}")))
     }
 }

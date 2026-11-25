@@ -112,7 +112,7 @@ final class ProviderStatusTests: XCTestCase {
     }
 
     func testStatusPageTable() {
-        for id in ["claude-code", "cursor", "copilot", "factory", "augment", "huggingface"] {
+        for id in ["claude-code", "cursor", "copilot", "factory", "huggingface"] {
             XCTAssertNotNil(ProviderStatusFetcher.statusPages[id].flatMap(URL.init(string:)), id)
         }
         XCTAssertTrue(ProviderStatusFetcher.openAIProviders.contains(ProviderID.codex.rawValue))

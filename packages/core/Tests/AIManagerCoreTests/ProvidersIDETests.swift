@@ -266,50 +266,6 @@ final class ProvidersIDETests: XCTestCase {
         XCTAssertTrue(spec.files[0].sqliteKeys.contains("cursorAuth/refreshToken"))
     }
 
-    // MARK: Windsurf
-
-    func testWindsurfProtoRejectsOversizedLengths() {
-        // Field 1, wire type 2, then a 10-byte varint length of UInt64.max.
-        let hostile = Data([0x0A] + [UInt8](repeating: 0xFF, count: 9) + [0x01])
-        XCTAssertThrowsError(try WindsurfProto.fields(hostile))
-        XCTAssertThrowsError(try WindsurfProto.fields(Data([0x0A, 0x05, 0x01])))
-    }
-
-    func testWindsurfProtoRoundTrip() throws {
-        let request = WindsurfProto.encodeRequest(authToken: "tok")
-        let decoded = try WindsurfProto.fields(request)
-        XCTAssertEqual(decoded.map(\.0), [1, 2])
-        XCTAssertEqual(decoded[0].1, .bytes(Data("tok".utf8)))
-        XCTAssertEqual(decoded[1].1, .varint(1))
-
-        let info = WindsurfProto.bytes(2, Data("Pro".utf8))
-        let end = WindsurfProto.varint(1, 1_774_029_950)
-        let status = WindsurfProto.bytes(1, info) + WindsurfProto.bytes(3, end) + WindsurfProto.varint(12, 0)
-            + WindsurfProto.varint(14, 9) + WindsurfProto.varint(15, 54)
-            + WindsurfProto.varint(17, 1_774_080_000) + WindsurfProto.varint(18, 1_774_166_400)
-        let parsed = try WindsurfProto.decodeResponse(WindsurfProto.bytes(1, status))
-        XCTAssertEqual(parsed.planName, "Pro")
-        XCTAssertEqual(parsed.dailyRemaining, 9)
-        XCTAssertEqual(parsed.weeklyReset, Date(timeIntervalSince1970: 1_774_166_400))
-        XCTAssertEqual(parsed.planEnd, Date(timeIntervalSince1970: 1_774_029_950))
-        XCTAssertThrowsError(try WindsurfProto.fields(Data([0x0A, 0x05, 0x41])))
-
-        let usage = try WindsurfProto.map(parsed)
-        XCTAssertEqual(usage.windows.map(\.id), ["daily", "weekly"])
-        XCTAssertEqual(usage.windows.map(\.usedPercent), [91, 46])
-        XCTAssertEqual(usage.windows[0].resetsAt, Date(timeIntervalSince1970: 1_774_080_000))
-        XCTAssertEqual(usage.plan, "Pro")
-        XCTAssertEqual(usage.sections.first?.rows.first?.label, "Plan ends")
-    }
-
-    func testWindsurfParsesJSONAndKeyValueSessions() throws {
-        let fromJSON = try WindsurfProto.parseSession(#"{"devin_session_token":"s","devin_auth1_token":"a","devin_account_id":"acc","devin_primary_org_id":"org"}"#)
-        XCTAssertEqual([fromJSON.token, fromJSON.auth1, fromJSON.account, fromJSON.org], ["s", "a", "acc", "org"])
-        let fromLines = try WindsurfProto.parseSession("devin_session_token=s\ndevin_auth1_token=\"a\"\ndevin_account_id: acc\ndevin_primary_org_id=org")
-        XCTAssertEqual([fromLines.token, fromLines.auth1, fromLines.account, fromLines.org], ["s", "a", "acc", "org"])
-        XCTAssertThrowsError(try WindsurfProto.parseSession(#"{"devin_session_token":"s"}"#))
-    }
-
     // MARK: JetBrains AI
 
     private let jetBrainsXML = """

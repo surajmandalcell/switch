@@ -19,17 +19,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
 
     // MARK: A
 
-    func testAbacus() throws {
-        let usage = try AbacusUsage.map(
-            json(#"{"success":true,"result":{"totalComputePoints":1000,"computePointsLeft":750}}"#),
-            billing: json(#"{"success":true,"result":{"nextBillingDate":"2026-07-01T00:00:00Z","currentTier":"Pro"}}"#))
-        XCTAssertEqual(usage.windows[0].usedPercent, 25)
-        XCTAssertEqual(usage.windows[0].detail, "250 / 1,000 credits")
-        XCTAssertEqual(usage.windows[0].windowMinutes, 30 * 1440)
-        XCTAssertEqual(usage.windows[0].resetsAt, utc("2026-07-01T00:00:00Z"))
-        XCTAssertEqual(usage.plan, "Pro")
-    }
-
     func testAerostack() throws {
         let usage = try AerostackUsage.map(json(
             #"{"usage":{"ai_tokens":{"used":1200,"limit":1000}},"period":"2026-06","tier":" Pro "}"#))
@@ -265,34 +254,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
 
     // MARK: H
 
-    func testHelmcode() throws {
-        let quota = try json(#"{"periodStart":"2026-06-01T00:00:00Z","models":[{"model":"qwen","cap":1000,"tokensUsed":250,"creditTokens":100}]}"#)
-        let usage = try HelmcodeUsage.map(quota, organization: "NaN Builders")
-        XCTAssertEqual(usage.plan, "Dashboard session")
-        XCTAssertEqual(usage.organization, "NaN Builders")
-        XCTAssertEqual(usage.windows[0].detail, "250 / 1,000 tokens · 100 credit-funded")
-        // periodEnd is missing, so the reset is the first of the month after periodStart.
-        XCTAssertEqual(usage.windows[0].resetsAt, utc("2026-07-01T00:00:00Z"))
-    }
-
-    func testHuggingface() throws {
-        let html = """
-        <div class="x" data-props="{&quot;entity&quot;:{&quot;type&quot;:&quot;user&quot;,&quot;currentBalanceUsd&quot;:12.5}}"></div>
-        """
-        XCTAssertEqual(HuggingfaceUsage.walletBalance(html: html), 12.5)
-        let legacy = #"<div data-props='{"invoiceCreditsCents":250}'></div>"#
-        XCTAssertEqual(HuggingfaceUsage.walletBalance(html: legacy), 2.5)
-        // Two wallets are ambiguous.
-        XCTAssertNil(HuggingfaceUsage.walletBalance(html: html + html))
-        let usage = try HuggingfaceUsage.map(
-            json(#"{"usage":{"inferenceProviders":{"usedNanoUsd":5000000000,"includedNanoUsd":2000000000}}}"#),
-            profile: json(#"{"name":"ada","isPro":false}"#), balance: 12.5)
-        XCTAssertEqual(usage.cost?.balance, 12.5)
-        XCTAssertEqual(try rows(usage, "Credits"), ["Prepaid balance": "$12.50"])
-        XCTAssertEqual(try rows(usage, "Account"), ["Username": "ada"])
-        XCTAssertEqual(usage.plan, "Free")
-    }
-
     func testHyper() throws {
         let usage = try HyperUsage.map(json(#"{"balance":1234.567}"#))
         XCTAssertEqual(usage.cost?.balance, 1234.567)
@@ -301,19 +262,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
     }
 
     // MARK: L
-
-    func testLangdock() throws {
-        let usage = try LangdockUsage.map(json(#"""
-        [{"result":{"data":{"json":{"hasIncludedUsageLimits":true,"planUsage":{
-           "sessionUsageLimitsEnabled":false,"weeklyUsagePercent":40,"weeklyResetsAt":"2026-06-15T00:00:00Z"}}}}}]
-        """#))
-        // Session limits are off, so only the weekly window shows.
-        XCTAssertEqual(usage.windows.map(\.id), ["weekly"])
-        XCTAssertEqual(usage.windows[0].windowMinutes, 10_080)
-        let none = try LangdockUsage.map(json(
-            #"[{"result":{"data":{"json":{"hasIncludedUsageLimits":false}}}}]"#))
-        XCTAssertEqual(try rows(none, "Usage"), ["Included limits": "No included usage limits available"])
-    }
 
     func testLinkup() throws {
         let usage = try LinkupUsage.map(json(#"{"balance":4.25}"#))
@@ -344,18 +292,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         XCTAssertNil(LiteLLMUsage.modelActivity([]))
     }
 
-    func testLithosAI() throws {
-        let usage = try LithosAIUsage.map(
-            me: json(#"{"user":{"email":"ada@example.com"},"activeOrganization":{"id":"o1","name":"Lab"}}"#),
-            billing: json(#"{"balanceNanos":5000000,"hasCard":false,"onHold":true}"#), spend: nil, today: "2026-09-21")
-        XCTAssertEqual(usage.plan, "Browser session")
-        let values = try rows(usage, "Billing")
-        XCTAssertEqual(values["Balance"], "Less than $0.01")
-        XCTAssertEqual(values["Payment card"], "Not added")
-        XCTAssertEqual(values["Account status"], "On hold")
-        XCTAssertEqual(values["Spend"], "Unavailable")
-    }
-
     func testLlmman() throws {
         let node = try json(#"{"memory":10000000000,"loaded":{"a":4000000000},"stored":{"a":4000000000,"b":500}}"#)
         let usage = try LlmmanUsage.map(node, version: "0.5.1", hasKey: true)
@@ -383,27 +319,7 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         XCTAssertEqual(usage.cost?.used, 1.5)
     }
 
-    func testLongcat() throws {
-        let account = try LongCatUsage.unwrap(json(#"{"code":0,"data":{"nickName":"Ada"}}"#))
-        let tokenUsage = try LongCatUsage.unwrap(json(#"{"code":0,"data":{"usage":{"totalToken":1000,"availableToken":600}}}"#))
-        let usage = try LongCatUsage.map(account: account, summary: nil, tokenUsage: tokenUsage, fuel: nil)
-        XCTAssertEqual(usage.windows[0].usedPercent, 40)
-        XCTAssertEqual(usage.windows[0].detail, "400 / 1,000 tokens")
-        XCTAssertEqual(usage.organization, "Ada")
-    }
-
     // MARK: M
-
-    func testManus() throws {
-        let usage = try ManusUsage.map(json(#"""
-        {"data":{"totalCredits":1500,"freeCredits":300,"periodicCredits":600,"proMonthlyCredits":800,
-         "refreshCredits":200,"maxRefreshCredits":300,"refreshInterval":"DAILY"}}
-        """#))
-        XCTAssertEqual(usage.plan, "Balance: 1,500 credits")
-        XCTAssertEqual(usage.windows[1].title, "Daily")
-        XCTAssertEqual(usage.windows[1].detail, "Daily: 200 / 300")
-        XCTAssertEqual(try rows(usage, "Balance"), ["Total credits": "1,500", "Free credits": "300"])
-    }
 
     func testMoonshot() throws {
         let usd = try MoonshotUsage.map(json(
@@ -416,30 +332,9 @@ final class ProvidersAuditPluginsTests: XCTestCase {
     }
 
     func testMuse() throws {
-        let now = utc("2026-06-01T00:00:00Z")
-        let quota = try json(#"""
-        {"tier":"Power","weekly_weighted_used":"50","weekly_weighted_limit":"100","weekly_resets_at":1782000000,
-         "window_duration_secs":18000,"window_weighted_used":"10","window_weighted_limit":"100","window_resets_at":1781000000}
-        """#)
-        let parsed = try XCTUnwrap(MuseUsage.webQuota(quota, now: now))
-        XCTAssertEqual(parsed.primary.usedPercent, 10)
-        XCTAssertEqual(parsed.primary.windowMinutes, 300)
-        XCTAssertEqual(parsed.primary.resetsAt, Date(timeIntervalSince1970: 1_781_000_000))
-        XCTAssertEqual(parsed.secondary.usedPercent, 50)
-        XCTAssertEqual(parsed.secondary.windowMinutes, 10_080)
-        // A weekly quota whose reset has passed is stale.
-        XCTAssertNil(MuseUsage.webQuota(quota, now: utc("2030-01-01T00:00:00Z")))
-
         let idle = try json(#"{"is_subs_active":true,"subs_tier_name":"Power","user_email":"ada@example.com"}"#)
-        let web = MuseUsage.Web(teams: [("7", "Core")], note: nil, quota: ("Core", parsed.primary, parsed.secondary))
-        let usage = try MuseUsage.map(idle, web: web)
-        XCTAssertEqual(usage.windows.map(\.id), ["session", "weekly"])
-        XCTAssertEqual(try rows(usage, "Browser team quota (dev.meta.ai)"),
-                       ["Team": "Core", "5 hours": "10%", "Weekly": "50%"])
-        XCTAssertEqual(try rows(usage, "Browser teams"), ["Core": "7"])
-        let noTeam = try MuseUsage.map(idle, web: MuseUsage.Web(teams: [("7", "Core")], note: "Choose a browser team in Muse Code settings"))
-        XCTAssertEqual(try rows(noTeam, "Browser teams")["Status"], "Choose a browser team in Muse Code settings")
-        XCTAssertEqual(try rows(noTeam, "Muse Code subscription")["Quota"], "Not included in this login response")
+        let noQuota = try MuseUsage.map(idle)
+        XCTAssertEqual(try rows(noQuota, "Muse Code subscription")["Quota"], "Not included in this login response")
 
         let live = try MuseUsage.map(json(#"""
         {"is_subs_active":true,"subs_tier_name":"Power","subs_usage":{"window":{"used_percent":96,"window_duration_mins":300},
@@ -464,21 +359,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
          "subscription":{"kwh_included":100,"kwh_used":25,"auto_renew":false,"current_period_end":"2026-10-01T00:00:00Z"}}
         """#))
         XCTAssertTrue(manual.sections.isEmpty)
-    }
-
-    func testNotion() throws {
-        let identity = NotionUsage.Identity(email: "ada@example.com", userID: "u1", workspaceID: "s2",
-                                            workspaceName: "Acme", tier: "business")
-        let usage = try NotionUsage.map(
-            json(#"{"window":{"used":20,"limit":100,"window":"5h"}}"#), identity: identity)
-        XCTAssertEqual(try rows(usage, "Account"), ["User ID": "u1"])
-        XCTAssertEqual(usage.plan, "Business")
-        XCTAssertEqual(usage.organization, "Acme")
-        let spaces = try json(#"""
-        {"u1":{"notion_user":{"u1":{"value":{"value":{"id":"u1","email":"ada@example.com"}}}},
-               "space":{"s1":{"value":{"value":{"id":"s1","name":"Acme","subscription_tier":"business"}}}}}}
-        """#)
-        XCTAssertEqual(try NotionUsage.identity(spaces: spaces, preferred: nil).userID, "u1")
     }
 
     func testNous() throws {
@@ -533,19 +413,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
 
     // MARK: P
 
-    func testPerplexity() throws {
-        let now = utc("2026-09-21T00:00:00Z")
-        let expiry = Int(utc("2026-10-15T12:00:00Z").timeIntervalSince1970)
-        let usage = try PerplexityUsage.map(json("""
-        {"balance_cents":100,"renewal_date_ts":1791000000,"current_period_purchased_cents":0,"total_usage_cents":50,
-         "credit_grants":[{"type":"recurring","amount_cents":4000},
-                          {"type":"promotional","amount_cents":200,"expires_at_ts":\(expiry)}]}
-        """), now: now)
-        let bonus = try XCTUnwrap(usage.windows.first { $0.id == "bonus" })
-        XCTAssertEqual(bonus.detail, "0 / 200 bonus · exp. Oct 15")
-        XCTAssertEqual(usage.plan, "Pro")
-    }
-
     func testPoe() throws {
         let now = utc("2026-09-21T12:00:00Z")
         let t = Int(now.timeIntervalSince1970 * 1_000_000)
@@ -571,41 +438,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         XCTAssertEqual(chart.total, 400)
     }
 
-    // MARK: Q
-
-    func testQoder() throws {
-        let usage = try QoderUsage.map(json(#"""
-        {"totalQuota":{"quotaSummary":{"usedValue":1.5,"limitValue":10,"remainingValue":8.5}},
-         "nextResetAt":"2026-10-01T00:00:00Z"}
-        """#))
-        XCTAssertEqual(usage.windows[0].usedPercent, 15)
-        XCTAssertEqual(usage.windows[0].detail, "1.5 / 10 credits")
-        XCTAssertEqual(usage.windows[0].resetsAt, utc("2026-10-01T00:00:00Z"))
-    }
-
-    // MARK: R
-
-    func testRaycast() throws {
-        let usage = try RaycastUsage.map(json(#"""
-        {"remaining_balance_credits":0,"total_balance_credits":0,"next_credits_at":"2026-10-01T12:00:00Z",
-         "funding_subscription":{"tier":"pro_plus"}}
-        """#))
-        XCTAssertEqual(usage.plan, "Pro+")
-        XCTAssertEqual(try section(usage, "Credits").rows.map(\.label), ["Left", "Total", "Renews"])
-        let meter = try RaycastUsage.map(json(#"{"remaining_balance_credits":"75.5","total_balance_credits":100}"#))
-        XCTAssertEqual(meter.windows[0].usedPercent, 24.5)
-        XCTAssertEqual(meter.windows[0].detail, "75.5 / 100 credits left")
-    }
-
-    func testReplicate() throws {
-        let usage = try ReplicateUsage.map(
-            invoices: json(#"{"invoices":[{"type":"monthly-usage","total_cost_before_adjustments":"4.25"}]}"#),
-            credit: json(#"{"unused_credit":"10"}"#), account: .init(username: "ada", isOrganization: false))
-        XCTAssertEqual(try rows(usage, "Account"), ["Username": "ada"])
-        XCTAssertEqual(try rows(usage, "Billing"), ["Spent this month": "$4.25", "Credit balance": "$10.00"])
-        XCTAssertNil(usage.organization)
-    }
-
     // MARK: S
 
     func testSailResearch() throws {
@@ -616,21 +448,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         XCTAssertEqual(usage.plan, "API key")
         XCTAssertEqual(try rows(usage, "Organization billing"),
                        ["Credit balance": "Unavailable", "Last 7 days spend": "$12.34"])
-    }
-
-    func testSakana() throws {
-        let page = """
-        <div data-slot="card"><div data-slot="card-title"><span>Standard</span><span class="price">$20/mo</span></div></div>
-        <p class="t">5-hour</p><div><p class="u">12.5% used</p></div>
-        """
-        let payg = """
-        <h2 class="a">Credit balance</h2><div><p class="text-2xl tabular-nums">$12.50</p></div>
-        <h2>Usage</h2><span class="m">Total<!-- -->: <!-- -->$3.25</span>
-        <button aria-label="Usage date range" type="button"><!-- -->Sep 1  -  <!-- -->Sep 21</button>
-        """
-        let usage = try SakanaUsage.map(html: page, paygHTML: payg)
-        let extra = try section(usage, "Extra usage").rows
-        XCTAssertEqual(extra[1], UsageRow("Usage", "$3.25 · Sep 1 - Sep 21"))
     }
 
     func testSofya() throws {
@@ -667,16 +484,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
 
     // MARK: T
 
-    func testT3Chat() throws {
-        let line = #"{"json":{"usageFourHourPercentage":12,"usageMonthPercentage":30,"usageBand":"high","usageFourHourNextResetAt":1790000000,"subscription":{"productName":"pro-plus","currentPeriodEnd":1791000000}}}"#
-        let usage = try T3ChatUsage.map(jsonLines: line)
-        XCTAssertEqual(usage.windows.map(\.id), ["base", "overage"])
-        XCTAssertEqual(usage.windows[0].detail, "Base - high")
-        XCTAssertEqual(usage.windows[0].windowMinutes, 240)
-        XCTAssertEqual(usage.windows[1].resetsAt, Date(timeIntervalSince1970: 1_791_000_000))
-        XCTAssertEqual(usage.plan, "Pro Plus")
-    }
-
     func testTavily() throws {
         let usage = try TavilyUsage.map(json(#"""
         {"account":{"plan_usage":120,"plan_limit":1000,"paygo_usage":5,"paygo_limit":50},"key":{"usage":30,"limit":null}}
@@ -684,25 +491,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         XCTAssertEqual(usage.plan, "API key")
         XCTAssertEqual(try rows(usage, "API key"), ["Used": "30 credits", "Limit": "Unlimited"])
         XCTAssertEqual(try rows(usage, "Pay as you go")["Remaining"], "45 credits")
-    }
-
-    func testTinyApi() throws {
-        let usage = try TinyApiUsage.map(json(#"{"success":true,"data":{"totalAvailable":42.5}}"#))
-        XCTAssertEqual(usage.plan, "Browser session")
-        XCTAssertEqual(try rows(usage, "Credits"), ["Available credits": "42.5 credits"])
-    }
-
-    func testTypeSafe() throws {
-        let credits = (1...30).map { #"{"amount":10,"remaining":\#($0),"expiresAt":"2026-10-15T12:00:00Z"}"# }.joined(separator: ",")
-        let line = #"{"billing":{"spent":4.5,"balance":20,"cycleLabel":"Oct","plan":"free_plan","credits":["#
-            + credits + "]}}"
-        let usage = try TypeSafeUsage.map(json(line))
-        let list = try section(usage, "Billing").rows
-        XCTAssertEqual(list[0], UsageRow("Spent (Oct)", "$4.50"))
-        XCTAssertEqual(list[1], UsageRow("Credit", "1 of 10, expires Oct 15"))
-        XCTAssertEqual(list.last, UsageRow("Additional credits", "9"))
-        XCTAssertEqual(list.count, 23)
-        XCTAssertEqual(usage.plan, "Free")
     }
 
     // MARK: V
@@ -732,28 +520,7 @@ final class ProvidersAuditPluginsTests: XCTestCase {
         XCTAssertEqual(try rows(usage, "Team credits"), ["Available balance": "$12.50", "Lifetime spend": "$7.25"])
     }
 
-    // MARK: W
-
-    func testWorkbuddy() throws {
-        let listings = try [
-            json(#"{"Accounts":[{"CapacityUnit":"credits","CycleEndTime":"2026-10-31 23:59:59"},{"CapacityUnit":"tokens","CycleEndTime":"2026-09-30 23:59:59"}]}"#),
-            json(#"{"Accounts":[{"CapacityUnit":"credits","CycleEndTime":"2026-11-30 23:59:59"},{"CapacityUnit":"credits","CycleEndTime":"2020-01-01 00:00:00"}]}"#),
-        ]
-        // The cycle ends at 23:59:59 China time; the dashboard resets one second later, at midnight CST.
-        XCTAssertEqual(WorkBuddyUsage.nextReset(listings, now: utc("2026-10-10T00:00:00Z")), utc("2026-10-31T16:00:00Z"))
-        XCTAssertNil(WorkBuddyUsage.nextReset([], now: utc("2026-10-10T00:00:00Z")))
-        XCTAssertEqual(WorkBuddyUsage.paidPackageCodes.count, 9)
-        XCTAssertEqual(WorkBuddyUsage.freePackageCodes.count, 11)
-    }
-
     // MARK: X
-
-    func testXApi() throws {
-        let usage = try XApiUsage.map(json(#"{"credits":{"balance":10.5},"freeCredits":{"balance":2}}"#))
-        XCTAssertEqual(usage.plan, "Browser session")
-        XCTAssertEqual(try rows(usage, "Credits"),
-                       ["Balance": "$12.50", "Purchased credits": "$10.50", "Free credits": "$2.00"])
-    }
 
     func testXaiConsole() throws {
         let history = try json("""
@@ -783,18 +550,6 @@ final class ProvidersAuditPluginsTests: XCTestCase {
 
     // MARK: Z
 
-    func testZed() throws {
-        let capped = try ZedUsage.map(json(#"""
-        {"plan":"zed_pro","current_usage":{"token_spend":{"spend_in_cents":250,"limit_in_cents":1000},
-        "edit_predictions":{"used":12,"limit":{"limited":100}}}}
-        """#))
-        XCTAssertEqual(try rows(capped, "Zed"),
-                       ["Token spend": "$2.50", "Spend limit": "$10.00", "Remaining budget": "$7.50"])
-        let open = try ZedUsage.map(json(
-            #"{"plan":"zed_free","current_usage":{"token_spend":{"spend_in_cents":0},"edit_predictions":{"used":3,"limit":"unlimited"}}}"#))
-        XCTAssertEqual(try rows(open, "Zed")["Spend limit"], "Not reported")
-    }
-
     func testZenMux() throws {
         let subscription = try json("""
         {"success":true,"data":{"plan":{"tier":"ultra","expires_at":"2026-04-12T08:26:56Z"},"account_status":"warning",
@@ -811,28 +566,5 @@ final class ProvidersAuditPluginsTests: XCTestCase {
             """))
         XCTAssertEqual(healthy.plan, "Pro plan")
         XCTAssertTrue(healthy.sections.isEmpty)
-    }
-
-    func testZoomMate() throws {
-        let now = utc("2026-09-21T12:00:00Z")
-        let status = try json(#"""
-        {"data":{"credit_status":{"budget_cap":100,"used_credit":25,"cycle_start_date":1788912000000,"cycle_end_date":1791590400000}}}
-        """#)
-        let today = ISO8601DateFormatter().string(from: now)
-        let history = try [
-            json(#"{"cost":1.25,"time":"\#(today)"}"#),
-            json(#"{"cost":2,"time":"\#(today)","is_deleted":true}"#),
-            json(#"{"cost":3,"time":"\#(ISO8601DateFormatter().string(from: now.addingTimeInterval(-3 * 86400)))"}"#),
-        ]
-        let usage = try ZoomMateUsage.map(status, history: history, now: now)
-        let values = try rows(usage, "Credit history")
-        XCTAssertEqual(values["Today"], "1.25")
-        XCTAssertEqual(values["30d credits"], "4.25")
-        // 2026-09-21 is before the cycle starts (2026-09-08 + ...); pace compares 25% used against the elapsed share.
-        XCTAssertNotNil(values["Pace"])
-        XCTAssertEqual(usage.windows[0].usedPercent, 25)
-        let unlimited = try ZoomMateUsage.map(json(#"{"data":{"credit_status":{"is_unlimited":true}}}"#), history: history, now: now)
-        XCTAssertEqual(try rows(unlimited, "Credit history")["30d credits"], "4.25")
-        XCTAssertNil(try rows(unlimited, "Credit history")["Pace"])
     }
 }
