@@ -242,3 +242,14 @@ for old in "$release_dir"/Switch-v*-mac-arm64.zip "$release_dir"/Switch-v*-mac-a
 done
 printf 'Published %s\nArchive: %s\nDisk image: %s\nChecksum: %s\n' \
   "$(gh release view "$tag" --repo "$repo" --json url --jq .url)" "$archive" "$dmg" "$checksum"
+
+# The website and the app update check read this version from api.samhq.app (samhq_backend/releases.json);
+# the helper writes it with the Homebrew cask, pushes both, and waits until api.samhq.app serves the version.
+backend="$repo_root/../samhq_backend"
+if (( !preview )) && [[ -f "$backend/releases.json" ]]; then
+  build_number="$(plutil -extract CFBundleVersion raw -o - "$verify_dir/Switch.app/Contents/Info.plist")"
+  zsh "$backend/scripts/publish-release.zsh" --no-upload \
+    --url "$(gh release view "$tag" --repo "$repo" --json url --jq .url)" \
+    --sha256 "$(shasum -a 256 "$dmg" | cut -d' ' -f1)" \
+    switch "$version" "$build_number" switch
+fi

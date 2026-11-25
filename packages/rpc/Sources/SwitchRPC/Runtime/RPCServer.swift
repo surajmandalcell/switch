@@ -237,7 +237,7 @@ public final class RPCServer: @unchecked Sendable {
     /// Requests with the same key run one at a time in arrival order, so a client reads its own earlier write.
     /// Nil: the request runs at once beside the others (slow reads such as `usage.detail` and `usage.history`).
     static func orderKey(_ method: String) -> String? {
-        if method.hasPrefix("settings.") { return "settings" }
+        if method.hasPrefix("settings.") || method.hasPrefix("tray.bars.") { return "settings" }
         if method.hasPrefix("backup.") { return "backups" }
         if method.hasPrefix("cleanup.") { return "cleanup" }
         let accounts = ["accounts.", "providers.", "login.", "import.", "droid.", "autoSwitch.", "recovery."]
@@ -387,12 +387,12 @@ public final class RPCServer: @unchecked Sendable {
         return id
     }
 
-    func params<P: Decodable>(_ type: P.Type, method: String, frame: Data) throws -> P {
-        do {
-            return try JSONDecoder().decode(ParamsBox<P>.self, from: frame).params
-        } catch {
+    func params<P: Decodable>(_ type: P.Type, method: String, frame: Data, default fallback: P? = nil) throws -> P {
+        guard let box = try? JSONDecoder().decode(OptionalParamsBox<P>.self, from: frame),
+              let params = box.params ?? fallback else {
             throw RPCError(-32602, "invalidParams", "The params do not fit \(method).")
         }
+        return params
     }
 
     private func topics(method: String, frame: Data) throws -> [Topic] {
@@ -523,6 +523,7 @@ private struct Envelope: Decodable {
 }
 
 private struct ParamsBox<P: Decodable>: Decodable { let params: P }
+private struct OptionalParamsBox<P: Decodable>: Decodable { let params: P? }
 
 private struct CancelParams: Decodable { let id: RPCID }
 private struct ProgressTokenParams: Decodable { let progressToken: RPCID }

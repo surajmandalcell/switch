@@ -133,8 +133,11 @@ extension View {
 struct AIMHairline: View {
   @Environment(\.aimPixel) private var pixel
   var vertical = false
+  /// Fainter lines take it in the color: a view `.opacity` gets its own layer in a scroll view, and a
+  /// window snapshot blends each such layer over its whole clip (15 ms on History).
+  var opacity: Double = 1
   var body: some View {
-    Rectangle().fill(AIMTheme.hairline)
+    Rectangle().fill(AIMTheme.hairline.opacity(opacity))
       .frame(width: vertical ? pixel : nil, height: vertical ? nil : pixel)
       .accessibilityHidden(true)
   }

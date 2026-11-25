@@ -143,7 +143,7 @@ Window {
       // fields first: the page reads them once when it loads
       fields = { name: ctl.pref("privacyMode", false) ? "" : "Droid " + (n + 1), key: "" }
       kind = "droid"; step = 2
-    } else { kind = p.fields && p.fields.length ? "secret" : "files"; fields = ({}); step = 2 }
+    } else { kind = p.style === "files" ? "files" : "secret"; fields = ({}); step = 2 }   // the wire style picks the call: optional fields do not
   }
   function back() { err = ""; if (login) { Helper.call("login.cancel", { sessionID: login.sessionID }, function () {}); login = null } if (boundID) { hide(); return } step = 1; kind = "" }
   function save() {

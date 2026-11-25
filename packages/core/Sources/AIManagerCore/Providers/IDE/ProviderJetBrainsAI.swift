@@ -5,19 +5,22 @@ extension ProviderCatalog {
     static let jetBrainsAI = ProviderSpec(
         id: "jetbrains", name: "JetBrains AI", fields: [],
         dashboard: "https://account.jetbrains.com/",
-        usage: { _ in try JetBrainsUsage.read(home: FileManager.default.homeDirectoryForCurrentUser) })
+        usage: { _ in try JetBrainsUsage.read(home: ProviderPaths.current.home) })
 }
 
 enum JetBrainsUsage {
     /// The most recently written AIAssistantQuotaManager2.xml among the installed IDE config folders.
-    static func newestQuotaFile(home: URL) throws -> (URL, String) {
+    static func newestQuotaFile(home: URL, env: [String: String] = ProcessInfo.processInfo.environment) throws -> (URL, String) {
         let fm = FileManager.default
+        let paths = ProviderPaths(home: home, env: env)
         var best: (url: URL, ide: String, date: Date)?
         for base in ["JetBrains", "Google"] {
-            let root = home.appendingPathComponent("Library/Application Support/\(base)")
+            let root = paths.appConfig(base)
+            guard paths.allowsRead(root) else { continue }
             for name in (try? fm.contentsOfDirectory(atPath: root.path)) ?? [] {
                 let file = root.appendingPathComponent("\(name)/options/AIAssistantQuotaManager2.xml")
-                guard let date = (try? fm.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date else { continue }
+                guard paths.allowsRead(file),
+                      let date = (try? fm.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date else { continue }
                 if best == nil || date > best!.date { best = (file, name, date) }
             }
         }
@@ -29,13 +32,14 @@ enum JetBrainsUsage {
 
     /// The quota XML, or the newer quota state the IDE logs. The IDE saves the XML rarely, so a log
     /// record written after the XML wins. Only the same IDE's log counts, because logs name no account.
-    static func read(home: URL) throws -> ProviderUsage {
-        let found = try? newestQuotaFile(home: home)
+    static func read(home: URL, env: [String: String] = ProcessInfo.processInfo.environment) throws -> ProviderUsage {
+        let paths = ProviderPaths(home: home, env: env)
+        let found = try? newestQuotaFile(home: home, env: env)
         let xmlUsage = found.flatMap { try? String(contentsOf: $0.0, encoding: .utf8) }.flatMap { try? map(xml: $0, ide: found?.1) }
         guard let found else {
             // No quota XML anywhere: the newest log among all installed IDEs still has a quota state.
-            guard let best = logCandidates(home: home).compactMap({ ide in
-                logEntry(home: home, vendor: ide.vendor, ide: ide.name).map { (ide, $0) }
+            guard let best = logCandidates(paths: paths).compactMap({ ide in
+                logEntry(paths: paths, vendor: ide.vendor, ide: ide.name).map { (ide, $0) }
             }).max(by: { $0.1.timestamp < $1.1.timestamp }) else {
                 throw ProviderError.missingCredential("No JetBrains IDE with AI Assistant was found. Open AI Assistant in your IDE once.")
             }
@@ -43,7 +47,7 @@ enum JetBrainsUsage {
         }
         let vendor = found.0.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
         let xmlDate = (try? FileManager.default.attributesOfItem(atPath: found.0.path))?[.modificationDate] as? Date
-        if let log = logEntry(home: home, vendor: vendor, ide: found.1), xmlUsage == nil || log.timestamp > (xmlDate ?? .distantFuture),
+        if let log = logEntry(paths: paths, vendor: vendor, ide: found.1), xmlUsage == nil || log.timestamp > (xmlDate ?? .distantFuture),
            let fresh = try? map(quota: log.quota, refill: log.refill, ide: found.1) {
             return fresh
         }
@@ -94,10 +98,11 @@ enum JetBrainsUsage {
     struct LogEntry { var timestamp: Date; var quota: JSON; var refill: JSON? }
 
     /// Installed IDE config folders, with their vendor folder ("JetBrains" or "Google").
-    static func logCandidates(home: URL) -> [(vendor: String, name: String)] {
-        ["JetBrains", "Google"].flatMap { vendor in
-            ((try? FileManager.default.contentsOfDirectory(
-                atPath: home.appendingPathComponent("Library/Application Support/\(vendor)").path)) ?? []).map { (vendor, $0) }
+    private static func logCandidates(paths: ProviderPaths) -> [(vendor: String, name: String)] {
+        return ["JetBrains", "Google"].flatMap { vendor -> [(String, String)] in
+            let root = paths.appConfig(vendor)
+            guard paths.allowsRead(root) else { return [] }
+            return ((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []).map { (vendor, $0) }
         }
     }
 
@@ -105,9 +110,12 @@ enum JetBrainsUsage {
     static let refillMarker = "QuotaManager2Impl - New quota refill state is: "
     static let tailBytes: UInt64 = 4 * 1024 * 1024
 
-    static func logEntry(home: URL, vendor: String, ide: String) -> LogEntry? {
-        guard ["JetBrains", "Google"].contains(vendor), !ide.contains("/"),
-              let handle = FileHandle(forReadingAtPath: home.appendingPathComponent("Library/Logs/\(vendor)/\(ide)/idea.log").path)
+    private static func logEntry(paths: ProviderPaths, vendor: String, ide: String) -> LogEntry? {
+        guard ["JetBrains", "Google"].contains(vendor), CoreSupport.safeRelativePath(ide),
+              !ide.contains("/"), !ide.contains("\\") else { return nil }
+        let name = paths.os == .macOS ? "idea.log" : "log/idea.log"
+        let file = paths.ideLogs(vendor).appending(path: ide).appending(path: name)
+        guard paths.allowsRead(file), let handle = FileHandle(forReadingAtPath: file.path)
         else { return nil }
         defer { try? handle.close() }
         // Read a bounded tail ending at the size seen on open. A tail that stops mid-line is rejected.

@@ -27,13 +27,19 @@ extension RPCRuntimeTests {
 
         // The shell line goes into the test home's rc file only.
         let shell = try await call(session, 5, "claude.shellIntegration.set", #"{"enabled":true}"#)
-        XCTAssertEqual(result(shell)?["status"] as? String, "done")
-        let enabled = try await manager.claudeShellIntegrationInstalled()
-        XCTAssertTrue(enabled)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.userHome.appending(path: ".zshrc").path))
-        _ = try await call(session, 6, "claude.shellIntegration.set", #"{"enabled":false}"#)
-        let disabled = try await manager.claudeShellIntegrationInstalled()
-        XCTAssertFalse(disabled)
+        let rc = paths.userHome.appending(path: ".zshrc").path
+        if AccountManager.shellIntegrationSupported {
+            XCTAssertEqual(result(shell)?["status"] as? String, "done")
+            let enabled = await manager.claudeShellIntegrationInstalled()
+            XCTAssertTrue(enabled)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: rc))
+            _ = try await call(session, 6, "claude.shellIntegration.set", #"{"enabled":false}"#)
+            let disabled = await manager.claudeShellIntegrationInstalled()
+            XCTAssertFalse(disabled)
+        } else {
+            XCTAssertEqual(errorCode(shell), -32007)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: rc))
+        }
 
         // The usage key is Droid-only: this provider's account is not found.
         let key = try await call(session, 7, "droid.setUsageKey", #"{"accountID":"\#(ids[0])","key":"\#(canary)"}"#)

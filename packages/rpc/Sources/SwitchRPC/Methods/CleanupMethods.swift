@@ -20,7 +20,8 @@ private struct BatchParams: Decodable {
 /// Cleanup methods of architecture.md 2.9 (`cleanup.sources`, `cleanup.trashList`, `cleanup.samples` are read
 /// methods). Scan and review are reads; apply, restore, and purge take the action lane.
 extension RPCServer {
-    static let cleanupMethods = ["cleanup.scan", "cleanup.review", "cleanup.apply", "cleanup.restore", "cleanup.purge"]
+    static let cleanupMethods = ["cleanup.scan", "cleanup.summary", "cleanup.review", "cleanup.apply",
+                                 "cleanup.restore", "cleanup.purge"]
 
     /// Nil when `method` is not a cleanup method.
     func cleanupMethod(_ method: String, frame: Data) async throws -> (any Encodable)? {
@@ -30,6 +31,8 @@ extension RPCServer {
             let result = try await engine.scanCleanup(
                 sourceID: try params(ScanParams.self, method: method, frame: frame).sourceID) { progress?($0) }
             return WireCleanupScan(result.scanID, result.scan)
+        case "cleanup.summary":
+            return await engine.cleanupSummary()
         case "cleanup.review":
             let params = try params(ReviewParams.self, method: method, frame: frame)
             return WireCleanupPlan(try await engine.reviewCleanup(scanID: try uuid(params.scanID, "scanID"),

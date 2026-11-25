@@ -4,9 +4,10 @@ extension ProviderCatalog {
     private static let kiroDatabase = "Library/Application Support/kiro-cli/data.sqlite3"
     private static let kiroTokens = LiveFile(
         sqlite: kiroDatabase, table: "auth_kv",
-        keys: ["kirocli:odic:token", "kirocli:odic:device-registration", "kirocli:social:token"])
+        keys: ["kirocli:odic:token", "kirocli:odic:device-registration", "kirocli:social:token"], root: .kiro)
     // Optional: a Builder ID login can have a token and no stored profile (CodexBar 929c4fe, MIT).
-    private static let kiroProfile = LiveFile(sqlite: kiroDatabase, table: "state", keys: ["api.codewhisperer.profile"], optional: true)
+    private static let kiroProfile = LiveFile(sqlite: kiroDatabase, table: "state", keys: ["api.codewhisperer.profile"],
+                                             optional: true, root: .kiro)
 
     /// Reads Kiro CLI's own rows. Kiro's CLI owns token refresh, so this never refreshes.
     static let agentKiro = ProviderSpec(

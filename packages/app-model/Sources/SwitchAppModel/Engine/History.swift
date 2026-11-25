@@ -68,4 +68,55 @@ extension AppEngine {
         let sessions = await historyEngine?.daySessions(day: day) ?? []
         return (points, sessions)
     }
+
+    public func overviewHistory(period: UsagePeriod, grouping: UsageGrouping, calendar: Calendar = .current)
+        async throws -> (snapshot: UsageHistorySnapshot, summary: UsageSummary, unavailableSources: [String]) {
+        let snapshot = try await usageHistory()
+        let summary = snapshot.summary(period: period, grouping: grouping, now: clock.now, calendar: calendar)
+        // shortcut: copy of OverviewPage.swift.OverviewHour.missingNote; delete when the Mac app adopts SwitchAppModel
+        let dailyOnly = period == .today ? ["codex-account-totals", "droid", "provider-charts"] : []
+        return (snapshot, summary, snapshot.unavailableSources + dailyOnly)
+    }
+
+    static func makeClaudeChatHistory(paths: ManagerPaths) -> ClaudeChatIndex {
+        // shortcut: copy of AccountViewModel.swift.IndexedChatHistoryProvider setup; delete when the Mac app adopts SwitchAppModel
+        let roots = if let root = paths.isolationRoot {
+            [root, paths.userHome].flatMap { home in
+                [home.appending(path: ".claude"), home.appending(path: ".config/claude")]
+            }
+        } else {
+            ClaudeCostScanner.defaultRoots(home: paths.userHome)
+        }
+        return ClaudeChatIndex(roots: roots,
+                               cacheFile: paths.applicationSupport.appending(path: "cache/claude-chat-history-v1.json"),
+                               allowsRead: { paths.allowsRead($0) })
+    }
+
+    // shortcut: copy of AccountViewModel.swift.IndexedChatHistoryProvider.refresh; delete when the Mac app adopts SwitchAppModel
+    public func conversationHistory(query: String, limit: Int, sources: Set<ChatThreadSource> = [])
+        async throws -> (snapshot: ChatHistorySnapshot, appCounts: [String: Int]) {
+        let accounts: [AccountRecord]
+        if let status { accounts = status.accounts }
+        else { accounts = (try? await manager?.status())?.accounts ?? [] }
+        let homes = UsageHistory.claudeProfileHomes(accounts: accounts).values.filter { paths.allowsRead($0) }
+        await claudeChatHistory.addRoots(homes)
+        async let codex = chatHistory.refresh(query: query, limit: limit, sources: sources)
+        async let claude = claudeChatHistory.refresh(query: query, limit: limit, sources: sources)
+        let snapshot = try await ChatHistorySnapshot.merging(codex, claude, limit: limit)
+        let counts = snapshot.librarySourceCounts.map { ($0.key.rawValue, $0.value) }
+        return (snapshot, Dictionary(uniqueKeysWithValues: counts))
+    }
+
+    // shortcut: copy of AccountViewModel.swift.IndexedChatHistoryProvider.page; delete when the Mac app adopts SwitchAppModel
+    public func conversationDetail(id: String, offset: Int, limit: Int, query: String, filter: ChatMessageFilter)
+        async throws -> ChatThreadDetail {
+        _ = try await conversationHistory(query: "", limit: 1)
+        if let detail = try await claudeChatHistory.detail(for: id, offset: offset, limit: limit, query: query, filter: filter) {
+            return detail
+        }
+        guard let detail = try await chatHistory.detail(for: id, offset: offset, limit: limit, query: query, filter: filter) else {
+            throw AppEngineError.notFound("No conversation has that ID.")
+        }
+        return detail
+    }
 }

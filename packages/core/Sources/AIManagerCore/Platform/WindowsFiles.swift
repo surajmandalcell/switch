@@ -239,8 +239,8 @@ enum WindowsFiles {
 
     // MARK: Private folders and files
 
-    /// Creates missing folders owner-only from the top down and makes the leaf owner-only.
-    static func privateDirectory(_ url: URL) throws {
+    /// Creates missing folders owner-only. Existing folders may belong to a provider or service.
+    static func privateDirectory(_ url: URL, preserveExistingACL: Bool = false) throws {
         let path = native(url.path)
         var missing: [String] = []
         var cursor = path
@@ -263,7 +263,7 @@ enum WindowsFiles {
         guard filled, info.st_mode & S_IFMT == S_IFDIR else {
             throw AIManagerError.unsafePath("private path is not a directory: \(url.path)")
         }
-        if missing.isEmpty || info.st_mode & 0o077 != 0 { try makePrivate(path: path) } // like chmod 700 on an existing folder
+        if !preserveExistingACL, missing.isEmpty || info.st_mode & 0o077 != 0 { try makePrivate(path: path) }
     }
 
     /// Creates `url` as a new empty owner-only file. Fails when anything is already there.
@@ -288,9 +288,10 @@ enum WindowsFiles {
 
     /// Writes an owner-only temporary next to `destination` and moves it over the destination.
     /// MoveFileExW keeps the temporary's access list; ReplaceFileW would merge in the old file's.
-    static func writePrivate(_ data: Data, to destination: URL) throws {
+    static func writePrivate(_ data: Data, to destination: URL, beforeReplace: () throws -> Void = {}) throws {
         let temporary = destination.deletingLastPathComponent().appending(path: ".\(destination.lastPathComponent).\(UUID().uuidString).tmp")
         let handle = try createPrivateFile(temporary)
+        defer { _ = withWin32Path(native(temporary.path)) { DeleteFileW($0) } }
         var ok = true
         data.withUnsafeBytes { bytes in
             var offset = 0
@@ -303,10 +304,10 @@ enum WindowsFiles {
         }
         ok = ok && FlushFileBuffers(handle)
         CloseHandle(handle)
-        guard ok, rename(temporary.path, destination.path) == 0 else {
-            let failure = lastError("Writing a private file", destination.path)
-            _ = withWin32Path(native(temporary.path)) { DeleteFileW($0) }
-            throw failure
+        guard ok else { throw lastError("Writing a private file", destination.path) }
+        try beforeReplace()
+        guard move(temporary.path, destination.path, replacing: true) else {
+            throw lastError("Replacing a private file", destination.path)
         }
     }
 
@@ -320,20 +321,30 @@ enum WindowsFiles {
 
     // MARK: Swap
 
-    /// Windows has no exchange rename. The old `second` moves to a fixed aside name, `first` moves in, and the
-    /// aside moves to `first`. A crash after step one leaves `second` missing; the next swap of the same path puts
-    /// the aside back first. Any other leftover aside stops the swap.
-    static func exchange(_ first: URL, _ second: URL) throws {
-        let aside = second.deletingLastPathComponent().appending(path: ".\(second.lastPathComponent).switch-swap").path
-        if CoreSupport.entryExists(URL(fileURLWithPath: aside)) {
-            guard !CoreSupport.entryExists(second), move(aside, second.path, replacing: false) else {
-                throw AIManagerError.unsafePath("An earlier swap of \(second.path) did not finish; \(aside) is still there.")
-            }
+    static func aside(for target: URL) -> URL {
+        target.deletingLastPathComponent().appending(path: ".\(target.lastPathComponent).switch-swap")
+    }
+
+    /// The caller has the two names from its journal. Fill only a missing name; preserve ambiguous states.
+    static func recoverExchange(_ first: URL, _ second: URL) throws {
+        let aside = aside(for: second)
+        guard CoreSupport.entryExists(aside) else { return }
+        guard CoreSupport.entryExists(first) || CoreSupport.entryExists(second) else {
+            throw AIManagerError.unsafePath("Both exchange paths are missing; the displaced file remains at \(aside.path).")
         }
+        let target = CoreSupport.entryExists(second) ? first : second
+        guard move(aside.path, target.path, replacing: false) else {
+            throw lastError("Restoring an interrupted exchange", aside.path)
+        }
+    }
+
+    static func exchange(_ first: URL, _ second: URL) throws {
+        try recoverExchange(first, second)
         guard CoreSupport.entryExists(first), CoreSupport.entryExists(second) else {
             errno = ENOENT
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT))
         }
+        let aside = aside(for: second).path
         guard move(second.path, aside, replacing: false) else { throw lastError("Swap step 1", second.path) }
         guard move(first.path, second.path, replacing: false) else {
             let failure = lastError("Swap step 2", first.path)

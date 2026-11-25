@@ -21,7 +21,8 @@ public struct ManagerPaths: Sendable {
     public var claudeExecutable: URL?
     public var isolationRoot: URL?
     /// Home that generic providers resolve CLI credential paths against.
-    public var userHome: URL { defaultHome.deletingLastPathComponent() }
+    public var userHome: URL { providerHome ?? defaultHome.deletingLastPathComponent() }
+    private var providerHome: URL?
     /// Private vault for saved credentials, `~/.switch`.
     public var vaultRoot: URL { credentialStore.deletingLastPathComponent() }
 
@@ -117,11 +118,13 @@ public struct ManagerPaths: Sendable {
 
     public static func environment(_ environment: [String: String] = ProcessInfo.processInfo.environment, fileManager: FileManager = .default) -> Self {
         var paths = standard(fileManager: fileManager)
+        paths.providerHome = fileManager.homeDirectoryForCurrentUser
         func url(_ key: String) -> URL? {
             environment[key].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
         }
         if let value = url("AI_MANAGER_ROOT") {
             paths.isolationRoot = value
+            paths.providerHome = value
             paths.droidBundledExecutable = nil
             paths.applicationSupport = value.appending(path: "application-support", directoryHint: .isDirectory)
             paths.credentialStore = value.appending(path: ".switch/codex", directoryHint: .isDirectory)
@@ -131,6 +134,11 @@ public struct ManagerPaths: Sendable {
             paths.droidHome = value.appending(path: ".factory")
             paths.droidCredentialStore = value.appending(path: ".switch/droid")
             paths.orcaAccountsRoot = value.appending(path: "orca-accounts", directoryHint: .isDirectory)
+        }
+        if paths.isolationRoot == nil {
+            let providerPaths = ProviderPaths(home: paths.userHome, env: environment)
+            if let value = providerPaths.override("CODEX_HOME") { paths.defaultHome = value }
+            if let value = providerPaths.override("GROK_HOME") { paths.grokHome = value }
         }
         if let value = url("AI_MANAGER_SHARED_ROOT"), url("AI_MANAGER_DEFAULT_HOME") == nil,
            paths.isolationRoot == nil || CoreSupportForPaths.contains(value, in: paths.isolationRoot!) {
@@ -152,9 +160,7 @@ public struct ManagerPaths: Sendable {
 
 private enum CoreSupportForPaths {
     static func contains(_ child: URL, in parent: URL) -> Bool {
-        let childParts = CoreSupport.canonical(child).pathComponents
-        let parentParts = CoreSupport.canonical(parent).pathComponents
-        return childParts.count >= parentParts.count && Array(childParts.prefix(parentParts.count)) == parentParts
+        CoreSupport.isContained(child, by: parent)
     }
 }
 
@@ -524,6 +530,8 @@ public enum RecoveryConflictChoice: String, Codable, Sendable {
 }
 
 public struct RecoveryItem: Codable, Equatable, Sendable {
+    // Shared JSON files need their original layout as well as the provider-owned member.
+    var previousBytes: Data?
     public var destination: URL
     public var backup: URL?
     public var expectedDigest: String

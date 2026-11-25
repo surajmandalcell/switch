@@ -19,7 +19,7 @@ final class ProviderAccountStoreTests: XCTestCase {
     private var recorder = Recorder()
 
     override func setUpWithError() throws {
-        root = fileManager.temporaryDirectory.appending(path: "ProviderAccountStoreTests-\(UUID().uuidString)")
+        root = testTemporaryDirectory.appending(path: "ProviderAccountStoreTests-\(UUID().uuidString)")
         paths = .init(
             applicationSupport: root.appending(path: "support"),
             credentialStore: root.appending(path: "user/.switch/codex"),
@@ -395,6 +395,47 @@ final class ProviderAccountStoreTests: XCTestCase {
 
     // MARK: Sign-in
 
+    func testWindowsGeminiStagingLeavesTheLiveProfileAlone() throws {
+        let live = userHome.appending(path: ".gemini/oauth_creds.json")
+        let original = Data(#"{"access_token":"synthetic-live"}"#.utf8)
+        try fileManager.createDirectory(at: live.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try original.write(to: live)
+        let spec = ProviderSpec(
+            id: "gemini", name: "Gemini CLI", style: .files, files: ProviderCatalog.geminiCLI.files,
+            login: ["true"], usage: { _ in ProviderUsage() })
+        let store = try ProviderAccountStore(paths: paths, environment: [
+            "PATH": TestCLI.searchPath, "HOME": userHome.path, "UserProfile": userHome.path,
+            "AppData": userHome.path, "LOCALAPPDATA": userHome.path, "Gemini_Cli_Home": userHome.path,
+            "XDG_CONFIG_HOME": userHome.path,
+        ], specs: [spec], os: .Windows)
+        let start = try store.startLogin(spec.id)
+        let env = start.launchSpec.environment
+        let home = URL(fileURLWithPath: try XCTUnwrap(env["HOME"]))
+        XCTAssertEqual(env["USERPROFILE"], home.path)
+        XCTAssertEqual(env["APPDATA"], home.appending(path: "AppData/Roaming").path)
+        XCTAssertEqual(env["LOCALAPPDATA"], home.appending(path: "AppData/Local").path)
+        XCTAssertEqual(env["GEMINI_CLI_HOME"], home.path)
+        XCTAssertEqual(env["XDG_CONFIG_HOME"], home.appending(path: ".config").path)
+        XCTAssertNil(env["Gemini_Cli_Home"])
+        XCTAssertNil(env["UserProfile"])
+        let keys = TerminalLaunch.signInExportKeys(for: .geminiCLI)
+        let exported = env.filter { keys.contains($0.key) }
+        XCTAssertEqual(exported["GEMINI_CLI_HOME"], home.path)
+        XCTAssertEqual(exported["USERPROFILE"], home.path)
+        XCTAssertEqual(exported["APPDATA"], env["APPDATA"])
+        XCTAssertEqual(exported["LOCALAPPDATA"], env["LOCALAPPDATA"])
+        let script = try XCTUnwrap(TerminalLaunch.cmdScript(command: ["gemini.cmd"], exports: exported, workingDirectory: nil))
+        for key in ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "GEMINI_CLI_HOME"] {
+            XCTAssertTrue(script.contains("set \"\(key)=\(try XCTUnwrap(env[key]))\""))
+        }
+        let staged = URL(fileURLWithPath: try XCTUnwrap(env["GEMINI_CLI_HOME"])).appending(path: ".gemini")
+        try fileManager.createDirectory(at: staged, withIntermediateDirectories: true)
+        try Data(#"{"access_token":"synthetic-staged"}"#.utf8).write(to: staged.appending(path: "oauth_creds.json"))
+        try store.cancelLogin(start.session.id)
+        XCTAssertFalse(fileManager.fileExists(atPath: home.path))
+        XCTAssertEqual(try Data(contentsOf: live), original)
+    }
+
     func testLoginStartCheckAndCancelUseAPrivateTempHome() throws {
         let store = try makeStore([filesSpec()])
         let provider = ProviderID(rawValue: "test-files")
@@ -498,7 +539,8 @@ final class ProviderAccountStoreTests: XCTestCase {
         let catalog = AccountManager.providerCatalog
         XCTAssertEqual(catalog.prefix(4).map(\.id), [.codex, .grokBuild, .droid, .claudeCode])
         for spec in ProviderCatalog.addable {
-            XCTAssertEqual(catalog.first { $0.id == spec.id }?.availability, .enabled, spec.id.rawValue)
+            XCTAssertEqual(catalog.first { $0.id == spec.id }?.availability,
+                           spec.supportedOS.contains(.current) ? .enabled : .unavailable, spec.id.rawValue)
         }
         let gemini = ProviderSpec(id: "gemini-cli", name: "Gemini", usage: { _ in ProviderUsage() })
         let custom = AccountManager.descriptors(for: [gemini, secretSpec])
@@ -686,6 +728,117 @@ final class ProviderAccountStoreTests: XCTestCase {
         XCTAssertEqual(try store.defaults()["test-files"], first.id)
     }
 
+    func testSecondWriteFailureRestoresFirstFile() throws {
+        let store = try makeStore([filesSpec()])
+        let (first, second) = try seedAB(store)
+        let shared = userHome.appending(path: ".config/shared.json")
+        let invalid = Data("invalid shared JSON".utf8)
+        try invalid.write(to: shared)
+
+        XCTAssertThrowsError(try store.makeDefault(second.id))
+        XCTAssertEqual(try authObject()["id"] as? String, "A")
+        XCTAssertEqual(try Data(contentsOf: shared), invalid)
+        XCTAssertEqual(try store.defaults()["test-files"], first.id)
+    }
+
+    func testIndexSaveFailureRestoresLiveLoginAndReportsRollbackFailure() throws {
+        let store = try makeStore([filesSpec()])
+        let (first, second) = try seedAB(store)
+        let index = paths.applicationSupport.appending(path: "provider-accounts/accounts.json")
+        let savedIndex = try Data(contentsOf: index)
+
+        XCTAssertThrowsError(try store.makeDefault(second.id) {
+            XCTAssertEqual(try self.authObject()["id"] as? String, "B")
+            try self.fileManager.removeItem(at: index)
+            try self.fileManager.createDirectory(at: index, withIntermediateDirectories: false)
+        }) { error in
+            XCTAssertTrue(error.localizedDescription.contains("test-files"))
+        }
+
+        XCTAssertEqual(try authObject()["id"] as? String, "A")
+        XCTAssertEqual(row("tok", in: userHome), "tk-A")
+        try fileManager.removeItem(at: index)
+        try savedIndex.write(to: index)
+        XCTAssertEqual(try store.defaults()["test-files"], first.id)
+    }
+
+    func testOpenKeepsASwitchWhoseIndexWasSaved() throws {
+        let store = try makeStore([filesSpec()])
+        let (_, second) = try seedAB(store)
+        let journal = paths.applicationSupport.appending(path: "provider-accounts/pending-switch.json")
+        var pending = Data()
+        _ = try store.makeDefault(second.id) { pending = try Data(contentsOf: journal) }
+        try pending.write(to: journal)
+
+        let reopened = try makeStore([filesSpec()])
+        XCTAssertEqual(try reopened.defaults()["test-files"], second.id)
+        XCTAssertEqual(try authObject()["id"] as? String, "B")
+        XCTAssertEqual(row("tok", in: userHome), "tk-B")
+        XCTAssertFalse(fileManager.fileExists(atPath: journal.path))
+    }
+
+    func testRollbackRestoresMissingSharedFileAndExactJSONBytes() throws {
+        let store = try makeStore([filesSpec(optionalCompanions: true)])
+        let (first, second) = try seedAB(store)
+        let shared = userHome.appending(path: ".config/shared.json")
+        for bytes in [nil, Data(#"{ "keep": 2, "testcli": { "tok": "s-A" } }"#.utf8)] {
+            if let bytes { try bytes.write(to: shared) } else { try fileManager.removeItem(at: shared) }
+            XCTAssertThrowsError(try store.makeDefault(second.id) { throw AIManagerError.sourceChanged })
+            if let bytes { XCTAssertEqual(try Data(contentsOf: shared), bytes) }
+            else { XCTAssertFalse(fileManager.fileExists(atPath: shared.path)) }
+            XCTAssertEqual(try store.defaults()["test-files"], first.id)
+        }
+    }
+
+    func testRecoveryPreservesALaterTokenRefresh() throws {
+        let store = try makeStore([filesSpec()])
+        let (first, second) = try seedAB(store)
+        let auth = userHome.appending(path: authPath)
+        let refreshed = Data(#"{"id":"B","token":"new-token"}"#.utf8)
+        XCTAssertThrowsError(try store.makeDefault(second.id) {
+            try refreshed.write(to: auth)
+            throw AIManagerError.sourceChanged
+        })
+        XCTAssertEqual(try Data(contentsOf: auth), refreshed)
+        XCTAssertEqual(try makeStore([filesSpec()]).defaults()["test-files"], first.id)
+    }
+
+    func testOpenNeverRestoresALeftRecordOverANewerLogin() throws {
+        let store = try makeStore([filesSpec()])
+        let (first, second) = try seedAB(store)
+        let journal = paths.applicationSupport.appending(path: "provider-accounts/pending-switch.json")
+        let auth = userHome.appending(path: authPath)
+        var pending = Data()
+        // The process dies after publishing B; later the CLI signs in again.
+        XCTAssertThrowsError(try store.makeDefault(second.id) {
+            pending = try Data(contentsOf: journal)
+            throw AIManagerError.sourceChanged
+        })
+        try pending.write(to: journal)
+        let newer = Data(#"{"id":"C","token":"cli-login"}"#.utf8)
+        try newer.write(to: auth)
+
+        let reopened = try makeStore([filesSpec()])
+        XCTAssertEqual(try Data(contentsOf: auth), newer)
+        XCTAssertEqual(try reopened.defaults()["test-files"], first.id)
+        XCTAssertFalse(fileManager.fileExists(atPath: journal.path))
+    }
+
+#if !os(Windows)
+    func testSwitchWithLinkedLiveParentPreservesLink() throws {
+        let store = try makeStore([filesSpec()])
+        let (_, second) = try seedAB(store)
+        let folder = userHome.appending(path: ".testcli")
+        let linked = root.appending(path: "linked-login")
+        try fileManager.moveItem(at: folder, to: linked)
+        try fileManager.createSymbolicLink(at: folder, withDestinationURL: linked)
+
+        _ = try store.makeDefault(second.id)
+        XCTAssertEqual(try authObject()["id"] as? String, "B")
+        XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: folder.path), linked.path)
+    }
+#endif
+
     func testSwitchRejectsIncompleteRequiredSnapshotBeforeChangingLiveFiles() throws {
         let store = try makeStore([filesSpec()])
         let (first, second) = try seedAB(store)
@@ -784,6 +937,7 @@ final class ProviderAccountStoreTests: XCTestCase {
     }
 
     func testCursorSwitchRemovesAbsentOwnedRowsAndPreservesConversationInBothDirections() async throws {
+        try XCTSkipUnless(ProviderOS.current == .macOS)
         let manager = try makeManager([ProviderCatalog.cursor])
         let database = "Library/Application Support/Cursor/User/globalStorage/state.vscdb"
         let original = try writeContinuityFixture("Library/Application Support/Cursor/User/workspaceStorage/project/conversation.json")
@@ -806,6 +960,7 @@ final class ProviderAccountStoreTests: XCTestCase {
     }
 
     func testKiroSwitchRemovesTheOtherLoginMethodAndPreservesConversationInBothDirections() async throws {
+        try XCTSkipUnless(ProviderOS.current == .macOS)
         let manager = try makeManager([ProviderCatalog.agentKiro])
         let database = "Library/Application Support/kiro-cli/data.sqlite3"
         let original = try writeContinuityFixture("Library/Application Support/kiro-cli/conversation-original.json")
@@ -869,7 +1024,7 @@ final class ProviderAccountStoreTests: XCTestCase {
             (ProviderCatalog.agentKimi, ".kimi-code/credentials/kimi-code.json", ".kimi/sessions/project/conversation-original.json"),
             (ProviderCatalog.antigravityCLI, ".gemini/antigravity-cli/antigravity-oauth-token", ".gemini/antigravity-cli/conversation-original.json"),
         ]
-        for (spec, path, historyPath) in providers {
+        for (spec, path, historyPath) in providers where spec.supportedOS.contains(.current) {   // Linux and Windows hide Copilot and Antigravity
             let manager = try makeManager([spec])
             let auth = userHome.appending(path: path)
             try fileManager.createDirectory(at: auth.deletingLastPathComponent(), withIntermediateDirectories: true)

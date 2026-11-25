@@ -678,9 +678,7 @@ final class AccountViewModel: ObservableObject {
                 }
                 if start.opensInTerminal {
                     // Switch never launches a generic sign-in itself: Terminal runs the saved command.
-                    let spec = ProviderCatalog.spec(providerID)
-                    let keys = ["HOME", "FACTORY_HOME_OVERRIDE", "FACTORY_DISABLE_KEYRING"] + (spec?.files.compactMap(\.homeEnv) ?? [])
-                        + (spec?.loginEnv.keys.sorted() ?? [])
+                    let keys = TerminalLaunch.signInExportKeys(for: providerID)
                     let script = try makeLaunchArtifact(
                         start.launchSpec, name: "Sign In to Switch Account.command", exportKeys: keys)
                     if paths.isolationRoot != nil {
@@ -2854,7 +2852,8 @@ final class AccountViewModel: ObservableObject {
 
 #if AI_MANAGER_PREVIEW
 enum DemoData {
-    static let now = Date(timeIntervalSince1970: 1_789_281_000)
+    // 2026-09-13 18:00 UTC, 11:30 PM in India: late in the day, so Today shows a full 24 hours.
+    static let now = Date(timeIntervalSince1970: 1_789_322_400)
 
     // Synthetic generic-provider accounts: no credential, no network.
     static let genericAccounts: [AccountRecord] = [
@@ -3268,7 +3267,8 @@ enum DemoData {
         var slots: [UsageSlotPoint] = []
         for quarter in first...max(first, last) {
             let hour = Double(quarter - first) / 4
-            let curve = max(0, sin((hour - 7) / 16 * .pi)) + (hour < 2 ? 0.25 : 0)
+            // A small overnight trickle keeps the Today chart one unbroken band.
+            let curve = max(0.06, sin((hour - 7) / 16 * .pi)) + (hour < 2 ? 0.25 : 0)
             for (index, row) in rows.enumerated() where row.service != "droid" {
                 let noise = abs(sin(Double(quarter) * 12.9898 + Double(index) * 78.233) * 43_758.5453)
                     .truncatingRemainder(dividingBy: 1)

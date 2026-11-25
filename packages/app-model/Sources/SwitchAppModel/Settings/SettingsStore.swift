@@ -46,6 +46,10 @@ extension SettingsRegistry {
             throw SettingsError.invalidValue(key)
         }
         guard JSONFileSettingsStore.size(of: value) <= maximumValueBytes else { throw SettingsError.tooLarge(key) }
+        if key == TrayBarChoices.key, case .object(let providers) = value,
+           !providers.allSatisfy({ !$0.key.isEmpty && TrayBarChoices($0.value) != nil }) {
+            throw SettingsError.invalidValue(key)
+        }
     }
 }
 
@@ -88,7 +92,8 @@ public final class JSONFileSettingsStore: SettingsStore, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard let value = values[key], let entry = SettingsRegistry.entry(key) else { return nil }
-        guard entry.type.accepts(value), Self.size(of: value) <= SettingsRegistry.maximumValueBytes else {
+        guard entry.type.accepts(value), Self.size(of: value) <= SettingsRegistry.maximumValueBytes,
+              key != TrayBarChoices.key || (try? SettingsRegistry.validate(key, value)) != nil else {
             if loggedWrongType.insert(key).inserted { log("settings: '\(key)' has the wrong type or size; using the default") }
             return nil
         }

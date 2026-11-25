@@ -55,14 +55,23 @@ public struct CleanupSource: Identifiable, Hashable, Sendable {
             return [BackupItem("backups"), BackupItem("sessions"), BackupItem(".claude.json", isLogin: true),
                     BackupItem(".credentials.json", isLogin: true)]
         }
-        return BackupPresets.items(for: service)
+        let presets = BackupPresets.items(for: service)
+        if tool == .opencode {
+            let paths = ProviderPaths(home: userHome, env: ProcessInfo.processInfo.environment)
+            if paths.openCodeDatabase(in: home)?.standardizedFileURL.path != home.appending(path: "opencode.db").standardizedFileURL.path {
+                return presets.filter { $0.path != "opencode.db" }
+            }
+        }
+        return presets
     }
 }
 
 public enum CleanupSources {
     /// Shared homes first (Codex CLI, Claude Code with its profiles, Grok Build, Droid), then tools found on this Mac without accounts.
-    public static func make(paths: ManagerPaths, accounts: [AccountRecord], fileManager: FileManager = .default) -> [CleanupSource] {
+    public static func make(paths: ManagerPaths, accounts: [AccountRecord], fileManager: FileManager = .default,
+                            environment: [String: String] = ProcessInfo.processInfo.environment) -> [CleanupSource] {
         let user = paths.userHome
+        let providerPaths = ProviderPaths(home: user, env: environment)
         func count(_ id: ProviderID) -> [AccountRecord] { accounts.filter { $0.identity.providerID == id } }
         func plural(_ n: Int) -> String { "\(n) \(n == 1 ? "account" : "accounts")" }
         func exists(_ url: URL) -> Bool { CoreSupport.entryExists(url) }
@@ -77,6 +86,7 @@ public enum CleanupSources {
             add("codex", .codex, "Codex CLI", plural(codex.count), .codex, home: paths.sharedRoot)
         }
         let claude = count(.claudeCode)
+        // Not CLAUDE_CONFIG_DIR: Switch sets it to a managed profile for the commands it launches.
         let claudeHome = user.appending(path: ".claude", directoryHint: .isDirectory)
         if !claude.isEmpty || exists(claudeHome) {
             result.append(CleanupSource(id: "claude", tool: .claude, title: "Claude Code", detail: "Shared history · \(plural(claude.count))",
@@ -95,11 +105,11 @@ public enum CleanupSources {
             add("droid", .droid, "Droid", plural(droid.count), .droid, home: paths.droidHome)
         }
         let found: [(String, CleanupTool, String, ProviderID, URL)] = [
-            ("gemini", .gemini, "Gemini CLI", .geminiCLI, user.appending(path: ".gemini")),
+            ("gemini", .gemini, "Gemini CLI", .geminiCLI, providerPaths.root(.gemini)),
             ("copilot", .copilot, "GitHub Copilot CLI", ProviderID(rawValue: "copilot"), user.appending(path: ".copilot")),
-            ("opencode", .opencode, "opencode", ProviderID(rawValue: "opencode"), user.appending(path: ".local/share/opencode")),
+            ("opencode", .opencode, "opencode", ProviderID(rawValue: "opencode"), providerPaths.root(.openCode)),
         ]
-        for (id, tool, title, provider, home) in found where exists(home) {
+        for (id, tool, title, provider, home) in found where paths.allowsRead(home) && exists(home) {
             add(id, tool, title, "Found on \(PlatformText.thisComputer)", provider, home: home)
         }
         return result
@@ -260,6 +270,7 @@ struct CleanupScanner {
         let oldVersions = "Older copies of the tool. The current version stays."
         let imagesTitle = "Pasted images in old conversations"
         let imagesDetail = "Removes pasted screenshots from old chats. The text stays and chats still open."
+        let mac = ProviderOS.current == .macOS
         switch source.tool {
         case .codex:
             let sessions = try codexSessions()
@@ -275,7 +286,8 @@ struct CleanupScanner {
                 risk: .caution, preselected: true, try children(["generated_images"]))
             add("logs", "Logs and temp files", logs, preselected: true, try children(["log", ".tmp"]))
             add("caches", "Caches", caches, preselected: true,
-                try children(["cache", "shell_snapshots"]) + whole(["Library/Caches/com.openai.codex", "Library/Caches/Codex"], root: 1))
+                try children(["cache", "shell_snapshots"])
+                + (mac ? whole(["Library/Caches/com.openai.codex", "Library/Caches/Codex"], root: 1) : []))
             add("versions", "Old app versions", oldVersions, preselected: true, ageBased: false,
                 try oldReleases("packages/standalone/releases", current: "packages/standalone/current", label: "Standalone")
                 + oldReleases("packages/app-server-daemon/releases", current: "packages/app-server-daemon/current", label: "App server"))
@@ -294,16 +306,18 @@ struct CleanupScanner {
             add("caches", "Caches", caches, preselected: true,
                 try children(["cache", "paste-cache", "image-cache", "session-env", "shell-snapshots"])
                 + children(profileDirectories(["cache", "paste-cache", "image-cache", "session-env", "shell-snapshots"]), root: 1)
-                + whole(["Library/Caches/claude-cli-nodejs", "Library/Caches/com.anthropic.claudefordesktop"], root: 1))
+                + (mac ? whole(["Library/Caches/claude-cli-nodejs", "Library/Caches/com.anthropic.claudefordesktop"], root: 1) : []))
             add("backups", "Old config backups", "Copies of the settings file. The five newest stay.", preselected: true,
                 try children(["backups"], keepNewest: 5) + children(profileDirectories(["backups"]), root: 1, keepNewest: 5))
             add("file-history", "File history", "Copies of files from before each edit. Removing them turns off rewind for old chats.",
                 risk: .caution, try children(["file-history"]))
             add("versions", "Old app versions", oldVersions, preselected: true, ageBased: false,
                 try oldReleases(".local/share/claude/versions", current: ".local/bin/claude", label: "Claude Code", root: 1)
-                + oldReleases("Library/Application Support/Claude/claude-code", current: nil, label: "Claude app", root: 1))
-            add("claude-vm", "Claude app VM", "Runs Claude Code inside the Claude app. The app downloads it again when needed.",
-                ageBased: false, try claudeVM())
+                + (mac ? oldReleases("Library/Application Support/Claude/claude-code", current: nil, label: "Claude app", root: 1) : []))
+            if mac {
+                add("claude-vm", "Claude app VM", "Runs Claude Code inside the Claude app. The app downloads it again when needed.",
+                    ageBased: false, try claudeVM())
+            }
             add("history", "Prompt history", "The prompts you typed. Removing it clears the up-arrow history.",
                 risk: .caution, whole(["history.jsonl"]))
         case .grok:
@@ -328,13 +342,17 @@ struct CleanupScanner {
                 risk: .caution, try folderSessions("session-state", encoded: false))
             add("logs", "Logs", logs, preselected: true, try children(["logs"]))
             add("caches", "Caches", caches, preselected: true,
-                try children(["plugin-data"]) + whole(["Library/Caches/copilot"], root: 1))
+                try children(["plugin-data"]) + (mac ? whole(["Library/Caches/copilot"], root: 1) : []))
         case .opencode:
+            let providerPaths = ProviderPaths(home: source.userHome, env: ProcessInfo.processInfo.environment)
+            let cache = CoreSupport.canonical(providerPaths.xdg("XDG_CACHE_HOME", fallback: ".cache").appending(path: "opencode"))
+            let relativeCache = CoreSupport.isContained(cache, by: source.userHome)
+                ? cache.pathComponents.dropFirst(source.userHome.pathComponents.count).joined(separator: "/") : nil
             add("conversations", "Conversations", "Saved OpenCode chats, by project. Dates are the last update.",
                 risk: .caution, byProject: true, try openCodeSessions())
             add("logs", "Logs", logs, preselected: true, try children(["log"]))
             add("caches", "Caches and tool output", caches, preselected: true,
-                try children(["tool-output"]) + (try children([".cache/opencode"], root: 1)))
+                try children(["tool-output"]) + children(relativeCache.map { [$0] } ?? [], root: 1))
             add("snapshots", "Undo snapshots", "Copies used to undo edits. Removing them loses undo for old sessions.",
                 risk: .caution, try children(["snapshot"]))
         }
@@ -345,6 +363,10 @@ struct CleanupScanner {
     // MARK: Item building
 
     private func openCodeSessions() throws -> [CleanupItem] {
+        let paths = ProviderPaths(home: source.userHome, env: ProcessInfo.processInfo.environment)
+        guard paths.openCodeDatabase(in: source.home)?.standardizedFileURL.path == source.home.appending(path: "opencode.db").standardizedFileURL.path else {
+            return []
+        }
         let sessions: [OpenCodeStore.Session]
         // A database with no known session table lists no chats; logs and caches still scan.
         do { sessions = try OpenCodeStore.sessions(home: source.home) }

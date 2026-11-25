@@ -275,7 +275,21 @@ Item {
     if (failed.length) Harness.log("FAILED " + failed.join(", "))
     Harness.quit(failed.length ? 1 : 0)
   }
+  // --script bars: right-click the first service header, Choose Bars…, then hide the second glance bar.
+  function bars() {
+    var dlg = function () { return win.popover ? win.popover.barsDialog : null }
+    run([1500, function () { win.togglePopover(anchor(false)) }, 900, function () {
+      var g = Helper.topics.tray.groups[0], it = find(win.popover.contentItem, "pop-svc-menu-" + g.providerID)
+      var p = it.mapToItem(null, 40, 13); Harness.rightClick(win.popover, p.x, p.y) }, 400,
+      function () { shot(win.popover, "bars-menu") },
+      function () { win.popover.chooseBars(Helper.topics.tray.groups[0].providerID, Helper.topics.tray.groups[0].name) }, 1200,
+      function () { Harness.log("STATE bars rows=" + JSON.stringify(dlg().rows)); shot(dlg(), "bars-dialog") },
+      function () { var r = dlg().rows; if (r.length > 1) dlg().pick("glance", r[1].id, false) }, 400,
+      function () { Harness.log("STATE bars hidden rows=" + JSON.stringify(dlg().rows)); shot(dlg(), "bars-hidden") },
+      function () { Harness.quit(0) }])
+  }
   function start(script) {
+    if (Harness && script === "bars") return bars()
     if (Harness && script === "prefs") return prefs()
     if (Harness && script === "shortcut") return shortcut()
     if (Harness && script === "states") return states()

@@ -15,14 +15,14 @@
 <meta property="og:description" content="Change coding accounts and keep your local conversations. Save logins for supported tools and check usage from your Mac's menu bar.">
 <meta property="og:image" content="https://switch.samhq.app/assets/og.jpg?v=monument">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="stylesheet" href="kit.css">
-<link rel="stylesheet" href="b.css">
+<link rel="stylesheet" href="kit.css?v=brew">
+<link rel="stylesheet" href="b.css?v=brew">
 <link rel="stylesheet" href="speed.css">
 <link rel="stylesheet" href="meters.css">
 <link rel="stylesheet" href="ring.css">
 <link rel="stylesheet" href="mzoom.css">
 <style>[data-vary] { position: relative; } .opt[hidden] { display: none !important; }</style>
-<script src="kit.js" defer></script>
+<script src="kit.js?v=brew" defer></script>
 <script src="meters.js" defer></script>
 <script src="ring.js" defer></script>
 <script src="mzoom.js" defer></script>
@@ -55,11 +55,12 @@
       <a class="bk1 dlx" data-dl href="#"><svg class="ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="tx">Download for Mac<small>Free · Apple silicon</small></span></a>
       <a class="ghb" data-gh href="#" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-gh"/></svg><span>View on GitHub</span></a>
     </div>
-    <ul class="h-meta"><li>v3.8.2</li><li>23.5 MB</li><li>macOS 14 or later</li></ul>
+    <ul class="h-meta"><li>v<span data-version>3.8.2</span></li><li>macOS 14 or later</li></ul>
+    <button type="button" class="brew" data-copy="brew install --cask samhqapp/tap/switch" aria-label="Copy the Homebrew install command"><span>Or with Homebrew:</span><span class="chip"><code>brew install --cask samhqapp/tap/switch</code><span class="k-copy"></span></span></button>
   </section>
   <div class="desk" data-desk data-fit="1184">
     <div data-mbar data-app="Switch"></div>
-    <div class="dk-win"><div class="wsh"><div class="win"><img src="assets/overview-tall-light.webp" alt=""><i class="tl"><b></b><b></b><b></b></i></div></div></div>
+    <div class="dk-win"><div class="wsh"><div class="win"><img src="assets/overview-fullday-light.webp" alt=""><i class="tl"><b></b><b></b><b></b></i></div></div></div>
     <div class="dk-pop"><div data-pop></div></div>
     <svg class="dk-cur" viewBox="0 0 19 28" aria-hidden="true"><path d="M2 2v20.5l5-4.7 3.2 7.4 3.4-1.5-3.2-7.3H17z" fill="#000" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
   </div>
@@ -109,9 +110,9 @@
     </div></div>
 
     <div class="t g" data-reveal>
-      <div class="lab"><h3>See usage across saved accounts</h3><p>See daily tokens, activity, account trends, and estimated API costs.</p>
-        <ul class="gl"><li style="--c:#B57EDC">Tokens per day</li><li style="--c:#2F7CF6">A year of activity</li><li style="--c:#E0735B">Trends by model</li><li style="--c:#2AB7CA">Share of tokens</li><li style="--c:#8BC34A">Estimated API cost</li></ul></div>
-      <div class="gw"><div class="wsh dk"><div class="win dark pan"><img src="assets/ins-frame-dark.webp" alt=""><div class="pc"><img src="assets/ins-content-dark.webp" alt=""></div><i class="tl"><b></b><b></b><b></b></i></div></div></div>
+      <div class="lab"><h3>See usage across saved accounts</h3><p>See tokens per hour and per day, activity, account trends, and estimated API costs.</p>
+        <ul class="gl"><li style="--c:#B57EDC">Tokens per hour and day</li><li style="--c:#2F7CF6">A year of activity</li><li style="--c:#E0735B">Trends by model</li><li style="--c:#2AB7CA">Share of tokens</li><li style="--c:#8BC34A">Estimated API cost</li></ul></div>
+      <div class="gw"><div class="wsh dk"><div class="win dark pan"><img src="assets/ins-frame-today-dark.webp" alt=""><div class="pc"><img src="assets/ins-content-today-dark.webp" alt=""></div><i class="tl"><b></b><b></b><b></b></i></div></div></div>
     </div>
   </section>
   </div>
@@ -147,7 +148,7 @@
   <section class="faqs grp" data-g="faq" id="faq"><div class="q" data-reveal><h2 class="h2">Questions about Switch</h2><p>For other questions, open an issue on GitHub.</p></div><div data-faq data-reveal style="--i:1"></div></section>
 
   <section class="cta-wrap grp" data-g="get" id="get">
-    <div class="bigicon" data-reveal><button type="button" data-noedit aria-label="Switch"><img src="assets/icon-512.webp" alt=""></button><h2>Download Switch for Mac</h2><p class="bi-sub">Save logins, check usage, and choose an account from the menu bar.</p><div class="row"><a class="bk1 dlx" data-dl href="#"><svg class="ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="tx">Download for Mac<small>Free · Apple silicon</small></span></a><a class="ghb" data-gh href="#" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-gh"/></svg><span class="g1">View on GitHub</span></a></div><div class="meta">v3.8.2<i></i>23.5 MB<i></i>macOS 14 or later</div></div>
+    <div class="bigicon" data-reveal><button type="button" data-noedit aria-label="Switch"><img src="assets/icon-512.webp" alt=""></button><h2>Download Switch for Mac</h2><p class="bi-sub">Save logins, check usage, and choose an account from the menu bar.</p><div class="row"><a class="bk1 dlx" data-dl href="#"><svg class="ap" aria-hidden="true"><use href="#i-apple"/></svg><span class="tx">Download for Mac<small>Free · Apple silicon</small></span></a><a class="ghb" data-gh href="#" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-gh"/></svg><span class="g1">View on GitHub</span></a></div><div class="meta">v3.8.2<i></i>23.5 MB<i></i>macOS 14 or later</div><button type="button" class="brew" data-copy="brew install --cask samhqapp/tap/switch" aria-label="Copy the Homebrew install command"><span>Or with Homebrew:</span><span class="chip"><code>brew install --cask samhqapp/tap/switch</code><span class="k-copy"></span></span></button></div>
   </section>
 
   <footer class="foot grp" data-g="foot">
@@ -155,9 +156,9 @@
   </footer>
 </div>
 
-<div class="dtoast" role="status" aria-live="polite"><i><svg aria-hidden="true"><use href="#i-ok"/></svg></i><div><b>Downloading Switch 3.8.2</b><span>23.5 MB. Open it from Downloads, then move it to Applications.</span></div></div>
+<div class="dtoast" role="status" aria-live="polite"><i><svg aria-hidden="true"><use href="#i-ok"/></svg></i><div><b>Downloading Switch 3.8.2</b><span>Open it from Downloads, then move it to Applications.</span></div></div>
 
-<script src="site.js"></script>
+<script src="site.js?v=brew"></script>
 <script>
 const nav = document.getElementById('nav'), links = [...nav.querySelectorAll('nav a')], ind = nav.querySelector('.ind');
 const secs = links.map(a => document.querySelector(a.getAttribute('href')));

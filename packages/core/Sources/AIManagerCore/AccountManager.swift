@@ -125,7 +125,7 @@ public actor AccountManager {
         var completedLoginDigest: String?
     }
 
-    public init(paths: ManagerPaths = .standard(), fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil, droidLoginReader: DroidLoginReader = .init(), droidSessionInitializer: (@Sendable (UUID, URL, String) throws -> Void)? = nil) throws {
+    public init(paths: ManagerPaths = .standard(),fileManager: FileManager = .default, writerCheck: WriterCheck? = nil, capacityCheck: CapacityCheck? = nil, verificationTimeout: TimeInterval = 10, loginRunner: AccountLoginRunner = .foundation, faultInjector: @escaping @Sendable (FaultPoint) throws -> Void = { _ in }, providerSpecs: [ProviderSpec] = ProviderCatalog.all, droidProcessLister: (@Sendable () throws -> [DroidProcess])? = nil, droidLoginReader: DroidLoginReader = .init(), droidSessionInitializer: (@Sendable (UUID, URL, String) throws -> Void)? = nil) throws {
         // First, before anything creates the new data folder.
         self.dataRootNotice = try AppLocations.migrateDataRoot(paths)
         self.paths = paths
@@ -142,7 +142,12 @@ public actor AccountManager {
         self.providerSpecs = providerSpecs
         self.providerStore = try ProviderAccountStore(paths: paths, fileManager: fileManager,
                                                       specs: providerSpecs)
-        self.writerCheck = writerCheck ?? { home in await AccountManager.systemWriterCheck(home: home) }
+        self.writerCheck = writerCheck ?? { home in
+            if CoreSupport.sameLocation(home, paths.grokHome) {
+                return ToolWriterProbe.check(tool: .grok, home: home)
+            }
+            return await AccountManager.systemWriterCheck(home: home)
+        }
         self.faultInjector = faultInjector
         self.verificationTimeout = verificationTimeout
         self.capacityCheck = capacityCheck ?? { AccountManager.systemCapacity(at: $0) }
@@ -333,7 +338,7 @@ public actor AccountManager {
 
     /// Codex, Grok Build, and Claude Code first, then every generic spec. A spec supersedes the
     /// disabled placeholder with the same id.
-    static func descriptors(for specs: [ProviderSpec]) -> [ProviderDescriptor] {
+    static func descriptors(for specs: [ProviderSpec], os: ProviderOS = .current) -> [ProviderDescriptor] {
         let builtIn: [ProviderID] = [.codex, .grokBuild, .droid, .claudeCode]
         let generic = specs.filter { !builtIn.contains($0.id) }
         let placeholders: [ProviderDescriptor] = [
@@ -350,7 +355,10 @@ public actor AccountManager {
             .init(id: .droid, displayName: "Droid", availability: .enabled),
             .init(id: .claudeCode, displayName: "Claude Code", availability: .enabled),
         ] + placeholders + generic.map {
-            ProviderDescriptor(id: $0.id, displayName: $0.name, availability: .enabled)
+            let supported = $0.supportedOS.contains(os)
+            return ProviderDescriptor(id: $0.id, displayName: $0.name,
+                                      availability: supported ? .enabled : .unavailable,
+                                      unavailableReason: supported ? nil : "Not available on \(os.rawValue) yet.")
         }
     }
 
@@ -1060,7 +1068,9 @@ public actor AccountManager {
         let (spec, values) = try providerStore.secretFields(providerID, fields)
         if let saved = try providerStore.savedSecret(spec, values) { return (saved, true) }
         do {
-            _ = try await spec.fetch(ProviderCredential(fields: values))
+            _ = try await ProviderPaths.$managerPaths.withValue(paths) {
+                try await spec.fetch(ProviderCredential(fields: values))
+            }
         } catch let error as ProviderError where error.needsSignIn {
             throw error
         } catch {}
@@ -1070,6 +1080,9 @@ public actor AccountManager {
     @discardableResult
     public func importLiveProviderAccount(providerID: ProviderID) throws -> AccountRecord {
         if providerID == .droid { return try importDroidAccount(name: "Droid 1") }
+        if let spec = providerStore.spec(providerID), !spec.supportedOS.contains(.current), spec.id.rawValue != "copilot" {
+            throw AIManagerError.unsupportedSource("\(spec.name) is not available on \(ProviderOS.current.rawValue) yet.")
+        }
         return try providerStore.importLive(providerID)
     }
 
@@ -1085,7 +1098,7 @@ public actor AccountManager {
         let removed = Set(removedLogins())
         var added: [AccountRecord] = []
         let skipped: Set<ProviderID> = [.codex, .grokBuild, .claudeCode, .droid]
-        for spec in providerSpecs where spec.style == .files && !skipped.contains(spec.id) {
+        for spec in providerSpecs where spec.style == .files && spec.supportedOS.contains(.current) && !skipped.contains(spec.id) {
             if let record = try? providerStore.autoImportLive(spec.id, removed: removed) { added.append(record) }
         }
         if let record = try? importLiveDroidLogin(removed: removed) { added.append(record) }
@@ -1096,8 +1109,8 @@ public actor AccountManager {
             }
         }
         // OpenCode 2 keeps its z.ai coding-plan key in its database; the same key as a Z Code one is skipped.
-        let openCode = paths.userHome.appending(path: ".local/share/opencode")
-        if let login = OpenCodeGoUsage.databaseLogin("zai-coding-plan", directory: openCode),
+        let openCode = ProviderPaths(home: paths.userHome, env: ProcessInfo.processInfo.environment).root(.openCode)
+        if paths.allowsRead(openCode), let login = OpenCodeGoUsage.databaseLogin("zai-coding-plan", directory: openCode),
            let record = try? providerStore.autoImportSecret(
                ProviderID(rawValue: "zai"), fields: ["apiKey": login.key], name: "OpenCode z.ai coding plan", removed: removed) {
             added.append(record)
@@ -1179,16 +1192,31 @@ public actor AccountManager {
 
     /// Read-only identity of the login currently in the provider's real home.
     public func liveProviderIdentity(providerID: ProviderID) -> CredentialIdentity? {
-        providerStore.liveIdentity(providerID)
+        guard providerStore.spec(providerID)?.supportedOS.contains(.current) == true else { return nil }
+        return providerStore.liveIdentity(providerID)
     }
+
+    public func providerCredentialPaths(_ providerID: ProviderID) -> [String] {
+        switch providerID {
+        case .codex: return [paths.defaultHome.appending(path: "auth.json").path]
+        case .grokBuild: return [paths.grokHome.appending(path: "auth.json").path]
+        default: return providerStore.credentialPaths(providerID)
+        }
+    }
+
+    public static var shellIntegrationSupported: Bool { ProviderOS.current != .Windows }
 
     /// Whether the opt-in shell function that makes a plain `claude` use the default Claude account is installed.
     public func claudeShellIntegrationInstalled() -> Bool {
-        claudeProfiles.shellIntegrationInstalled()
+        Self.shellIntegrationSupported && claudeProfiles.shellIntegrationInstalled()
     }
 
     /// Adds (or removes) the Claude shell integration. Install keeps a one-time `.switch-backup` of each rc file.
     public func setClaudeShellIntegration(_ enabled: Bool) throws {
+        guard Self.shellIntegrationSupported else {
+            if enabled { throw AIManagerError.unsupportedSource("Claude shell integration is not available on Windows.") }
+            return
+        }
         if enabled {
             try claudeProfiles.installShellIntegration()
         } else {
@@ -1214,7 +1242,9 @@ public actor AccountManager {
             let usage: ProviderUsage = try await UsageLogContext.$current.withValue(
                 .init(log: eventLog, account: accountID, probe: probe)
             ) {
-                let fetched = try await fetchProviderUsage(accountID: accountID, interactive: interactive)
+                let fetched = try await ProviderPaths.$managerPaths.withValue(paths) {
+                    try await fetchProviderUsage(accountID: accountID, interactive: interactive)
+                }
                 let usage = fetched.usage.sanitized()
                 try await retainProviderUsage(account: .init(id: accountID, providerID: fetched.providerID), usage: usage)
                 return usage
@@ -2831,7 +2861,11 @@ extension AccountManager {
             let canonical = CoreSupport.canonical(home).path
             guard checked.insert(canonical).inserted else { continue }
             switch await writerCheck(home) {
-            case .active: throw AIManagerError.activeCodexProcesses
+            case .active:
+                if CoreSupport.sameLocation(home, paths.grokHome) {
+                    throw AIManagerError.operationFailed("Grok is writing to its folder. Close it and try again.")
+                }
+                throw AIManagerError.activeCodexProcesses
             case .unknown: throw AIManagerError.writerStateUnknown
             case .inactive: break
             }
@@ -3478,12 +3512,11 @@ extension AccountManager {
             try finishOperation(&operation)
             return .init(accountID: accountID, backup: backup, previousAccountID: accountID)
         }
-        guard try credentialFingerprintIfPresent(defaultAuth) == outgoingFileDigest else {
-            throw AIManagerError.sourceChanged
-        }
         operation.expectedDigest = incomingInspection.digest
         try saveOperation(operation)
-        try CoreSupport.atomicWrite(incomingInspection.data, to: defaultAuth, fileManager: fileManager)
+        try CoreSupport.atomicWrite(incomingInspection.data, to: defaultAuth, fileManager: fileManager) {
+            guard try credentialFingerprintIfPresent(defaultAuth) == outgoingFileDigest else { throw AIManagerError.sourceChanged }
+        }
         try faultInjector(.afterDefaultCredentialPublication)
         operation.phase = .published
         try saveOperation(operation)
@@ -3643,12 +3676,11 @@ extension AccountManager {
                 backup: backup,
                 previousAccountID: accountID)
         }
-        guard try credentialFingerprintIfPresent(liveAuth) == outgoingFileDigest else {
-            throw AIManagerError.sourceChanged
-        }
         operation.expectedDigest = incomingInspection.digest
         try saveOperation(operation)
-        try CoreSupport.atomicWrite(incomingInspection.data, to: liveAuth, fileManager: fileManager)
+        try CoreSupport.atomicWrite(incomingInspection.data, to: liveAuth, fileManager: fileManager) {
+            guard try credentialFingerprintIfPresent(liveAuth) == outgoingFileDigest else { throw AIManagerError.sourceChanged }
+        }
         try faultInjector(.afterDefaultCredentialPublication)
         operation.phase = .published
         try saveOperation(operation)
@@ -3828,7 +3860,7 @@ extension AccountManager {
         let userHome = fileManager.homeDirectoryForCurrentUser
         candidates += [
             userHome.appending(path: ".local/bin/codex"),
-            userHome.appending(path: ".codex/packages/standalone/current/bin/codex"),
+            paths.defaultHome.appending(path: "packages/standalone/current/bin/codex"),
             URL(fileURLWithPath: "/opt/homebrew/bin/codex"),
             URL(fileURLWithPath: "/usr/local/bin/codex"),
             URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"),
@@ -3853,7 +3885,7 @@ extension AccountManager {
         let userHome = fileManager.homeDirectoryForCurrentUser
         candidates += [
             userHome.appending(path: ".local/bin/grok"),
-            userHome.appending(path: ".grok/bin/grok"),
+            paths.grokHome.appending(path: "bin/grok"),
             URL(fileURLWithPath: "/opt/homebrew/bin/grok"),
             URL(fileURLWithPath: "/usr/local/bin/grok"),
         ]
@@ -4013,9 +4045,13 @@ extension AccountManager {
                 try copyPortable(child, to: destination.appending(path: child.lastPathComponent), visited: visited, depth: depth + 1)
             }
         } else if values.isRegularFile == true {
-            try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
+            try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager, preserveExistingACL: true)
+#if os(Windows)
+            _ = try CoreSupport.copyHashing(source, to: destination)
+#else
             try fileManager.copyItem(at: source, to: destination)
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+#endif
         } else {
             throw AIManagerError.unsafePath("special file cannot be copied")
         }
@@ -4069,7 +4105,7 @@ extension AccountManager {
         let expected = try treeDigest(temporary)
         operation.touchedItems![operation.touchedItems!.count - 1].expectedDigest = expected
         try saveOperation(operation)
-        try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager)
+        try CoreSupport.privateDirectory(destination.deletingLastPathComponent(), fileManager: fileManager, preserveExistingACL: true)
         try CoreSupport.publish(temporary, replacing: destination, fileManager: fileManager)
     }
 
@@ -4531,6 +4567,9 @@ extension AccountManager {
         _ operation: RecoveryOperation,
         choice: RecoveryConflictChoice
     ) throws -> RecoveryResult {
+#if os(Windows)
+        try recoverInterruptedExchanges(operation)
+#endif
         if operation.kind == "delete-account" {
             return try resolveDeleteAccountConflict(operation, choice: choice)
         }
@@ -4551,7 +4590,7 @@ extension AccountManager {
             for target in targets {
                 if let backup = target.backup {
                     try CoreSupport.privateDirectory(
-                        target.destination.deletingLastPathComponent(), fileManager: fileManager)
+                        target.destination.deletingLastPathComponent(), fileManager: fileManager, preserveExistingACL: true)
                     let staged = target.destination.deletingLastPathComponent()
                         .appending(path: ".\(target.destination.lastPathComponent).\(operation.id.uuidString).recovery")
                     if CoreSupport.entryExists(staged) { try fileManager.removeItem(at: staged) }
@@ -4947,7 +4986,31 @@ extension AccountManager {
         }
     }
 
+#if os(Windows)
+    private func recoverInterruptedExchanges(_ operation: RecoveryOperation) throws {
+        for target in try recoveryTargets(operation) {
+            let destination = target.destination
+            guard CoreSupport.entryExists(WindowsFiles.aside(for: destination)) else { continue }
+            let stage: URL
+            if operation.phase == .conflicted {
+                stage = destination.deletingLastPathComponent()
+                    .appending(path: ".\(destination.lastPathComponent).\(operation.id.uuidString).recovery")
+            } else if ["import", "import-grok"].contains(operation.kind),
+                      CoreSupport.sameLocation(destination, operation.destination) {
+                stage = paths.applicationSupport.appending(path: "staging/\(operation.id.uuidString)/home")
+            } else {
+                stage = destination.deletingLastPathComponent()
+                    .appending(path: ".\(destination.lastPathComponent).\(operation.id.uuidString).stage")
+            }
+            try WindowsFiles.recoverExchange(stage, destination)
+        }
+    }
+#endif
+
     private func recoverOperation(_ operation: RecoveryOperation) throws -> RecoveryResult {
+#if os(Windows)
+        try recoverInterruptedExchanges(operation)
+#endif
         if operation.kind == "usage-credential-refresh" {
             return try recoverUsageCredentialRefresh(operation)
         }
