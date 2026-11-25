@@ -228,9 +228,7 @@ extension AppEngine {
 
     /// The Mac sign-in launch file as a `/bin/sh` script: only the sign-in variables of `spec` are exported.
     static func signInScript(_ spec: LaunchSpec, _ provider: ProviderID) -> String {
-        let catalog = ProviderCatalog.spec(provider)
-        let keys = ["HOME", "FACTORY_HOME_OVERRIDE", "FACTORY_DISABLE_KEYRING"]
-            + (catalog?.files.compactMap(\.homeEnv) ?? []) + (catalog?.loginEnv.keys.sorted() ?? [])
+        let keys = TerminalLaunch.signInExportKeys(for: provider)
         return TerminalLaunch.script(command: [spec.executable.path] + spec.arguments,
                                      exports: spec.environment.filter { keys.contains($0.key) },
                                      workingDirectory: spec.workingDirectory?.path)

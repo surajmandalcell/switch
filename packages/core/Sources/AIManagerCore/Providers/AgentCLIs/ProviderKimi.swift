@@ -2,7 +2,8 @@ import Foundation
 
 extension ProviderCatalog {
     private static let kimiFile = LiveFile(".kimi-code/credentials/kimi-code.json",
-        homeEnv: "KIMI_CODE_HOME", homeEnvSubpath: "credentials/kimi-code.json")
+        homeEnv: "KIMI_CODE_HOME", homeEnvSubpath: "credentials/kimi-code.json",
+        root: .kimi, rootSubpath: "credentials/kimi-code.json")
 
     /// Kimi Code CLI sign-in. Never refreshes: the refresh endpoint and client id are not confirmed
     /// in the sources, and the refresh token rotates.
@@ -23,8 +24,9 @@ extension ProviderCatalog {
                 throw ProviderError.unauthorized("Open Kimi Code to refresh this sign-in.")
             }
             var headers = HTTP.bearer(token).merging(["X-Msh-Platform": "kimi_code_cli"]) { $1 }
-            let deviceFile = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".kimi-code/device_id")
-            if let device = (try? String(contentsOf: deviceFile, encoding: .utf8))?
+            let paths = ProviderPaths.current
+            let deviceFile = paths.root(.kimi).appending(path: "device_id")
+            if paths.allowsRead(deviceFile), let device = (try? String(contentsOf: deviceFile, encoding: .utf8))?
                 .trimmingCharacters(in: .whitespacesAndNewlines), !device.isEmpty {
                 headers["X-Msh-Device-Id"] = device
             }

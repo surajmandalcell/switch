@@ -4,7 +4,10 @@ extension ProviderCatalog {
     /// Local read-only history: Pi has no account or quota, only session logs.
     static let agentPi = ProviderSpec(
         id: "pi", name: "Pi",
-        usage: { _ in try PiUsage.scan(now: Date()) })
+        usage: { _ in
+            let paths = ProviderPaths.current
+            return try PiUsage.scan(now: Date(), directories: PiUsage.sessionDirectories(home: paths.home).filter(paths.allowsRead))
+        })
 }
 
 enum PiUsage {
@@ -77,9 +80,9 @@ enum PiUsage {
 
     static func sessionsDirectory(environment: [String: String] = ProcessInfo.processInfo.environment,
                                   home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        func path(_ name: String) -> String? { environment[name].flatMap { $0.isEmpty ? nil : $0 } }
-        if let sessions = path("PI_CODING_AGENT_SESSION_DIR") { return URL(fileURLWithPath: sessions) }
-        if let agent = path("PI_CODING_AGENT_DIR") { return URL(fileURLWithPath: agent).appending(path: "sessions") }
+        let paths = ProviderPaths(home: home, env: environment)
+        if let sessions = paths.override("PI_CODING_AGENT_SESSION_DIR") { return sessions }
+        if let agent = paths.override("PI_CODING_AGENT_DIR") { return agent.appending(path: "sessions") }
         return home.appending(path: ".pi/agent/sessions")
     }
 
@@ -89,7 +92,8 @@ enum PiUsage {
                                    home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
         func path(_ name: String) -> String? { environment[name].flatMap { $0.isEmpty ? nil : $0 } }
         let config = home.appending(path: path("PI_CONFIG_DIR").flatMap { isAbsolutePath($0) ? nil : $0 } ?? ".omp")
-        let share = path("XDG_DATA_HOME").map { URL(fileURLWithPath: $0) } ?? home.appending(path: ".local/share")
+        let paths = ProviderPaths(home: home, env: environment)
+        let share = paths.xdg("XDG_DATA_HOME", fallback: ".local/share")
         let profile = (path("OMP_PROFILE") ?? path("PI_PROFILE")).flatMap {
             $0 != "default" && $0.range(of: #"^[a-z0-9][a-z0-9._-]{0,63}$"#, options: .regularExpression) != nil ? $0 : nil
         }

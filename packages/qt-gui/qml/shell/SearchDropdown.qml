@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Effects
 
-// Search drop-down on Overview, Maintenance and History (shell.md 4.3): 300 wide under the field, solid
+// Search drop-down on Overview, Utilities and History (shell.md 4.3): 300 wide under the field, solid
 // surface, radius 8, padding 6, 28 rows grouped under "Accounts" and "Settings". It stays open while the
 // pointer is over it, because a click on a row first takes focus from the field.
 Item {

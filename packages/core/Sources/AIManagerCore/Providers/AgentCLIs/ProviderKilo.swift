@@ -1,7 +1,7 @@
 import Foundation
 
 extension ProviderCatalog {
-    private static let kiloAuth = LiveFile(".local/share/kilo/auth.json", key: "kilo")
+    private static let kiloAuth = LiveFile(".local/share/kilo/auth.json", key: "kilo", root: .kilo)
 
     static let agentKilo = ProviderSpec(
         id: "kilo", name: "Kilo", style: .files,

@@ -7,6 +7,7 @@ extension ProviderCatalog {
         id: "copilot", name: "GitHub Copilot", style: .files, files: [copilotApps],
         dashboard: "https://github.com/settings/copilot", statusPage: "https://www.githubstatus.com",
         identify: { credential in CopilotUsage.identity(credential.json(copilotApps.id)) },
+        supportedOS: [.macOS],
         usage: { credential in
             guard let login = CopilotUsage.login(credential.json(copilotApps.id)),
                   let token = login.entry["oauth_token"].string else {

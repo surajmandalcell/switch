@@ -335,10 +335,18 @@ enum DroidSessionBinding {
         let journal = try JSONDecoder().decode(Pending.self, from: data)
         guard CoreSupport.safeRelativePath(journal.path),
               journal.temporary.hasPrefix(".switch-bind-"), journal.temporary.hasSuffix(".tmp"),
-              !journal.temporary.contains("/") else { throw Failure.unsafe }
+              !journal.temporary.contains("/"), !journal.temporary.contains("\\") else { throw Failure.unsafe }
         let target = root.appending(path: journal.path)
         try safe(target, within: root)
         let temporary = target.deletingLastPathComponent().appending(path: journal.temporary)
+#if os(Windows)
+        if CoreSupport.entryExists(WindowsFiles.aside(for: target)) {
+            try safe(temporary, within: root)
+            try safe(WindowsFiles.aside(for: target), within: root)
+            try beforeWrite()
+            try WindowsFiles.recoverExchange(temporary, target)
+        }
+#endif
         let targetDigest = try digest(target)
         if CoreSupport.entryExists(temporary) {
             try safe(temporary, within: root)

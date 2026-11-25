@@ -1,7 +1,7 @@
 import Foundation
 
 extension ProviderCatalog {
-    /// The Muse CLI keeps its device-code login in ~/.config/muse/auth.json; a pasted `dca:` token also works.
+    /// Reads a file-backed Muse login. Usage also accepts a pasted `dca:` token.
     static let muse = ProviderSpec(
         id: "muse", name: "Muse Code",
         style: .files,
@@ -10,15 +10,15 @@ extension ProviderCatalog {
                                  placeholder: "Reads the browser team quota when the login omits it"),
                  CredentialField("teamID", "Browser team ID (optional)", secure: false, optional: true,
                                  env: ["MUSE_WEB_TEAM_ID"])],
-        files: [LiveFile(".config/muse/auth.json", optional: true)],
-        login: ["muse", "login"],
+        files: [LiveFile(".config/muse/auth.json")],
+        login: ["muse"],
         dashboard: "https://dev.meta.ai",
         usage: { credential in
             guard let token = MuseUsage.token(credential) else {
-                throw ProviderError.missingCredential("Run muse login, or paste the dca: device token.")
+                throw ProviderError.missingCredential("Open Muse Code and sign in, or paste the dca: device token.")
             }
             guard token.hasPrefix("dca:") else {
-                throw ProviderError.unauthorized("Muse Code needs a device-code login. Run muse login again.")
+                throw ProviderError.unauthorized("Muse Code needs a device-code login. Open Muse Code and sign in again.")
             }
             let json = try await HTTP.json(
                 "https://api.meta.ai/muse-code/key",

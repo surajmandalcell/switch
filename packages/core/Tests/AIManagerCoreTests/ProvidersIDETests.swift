@@ -333,14 +333,15 @@ final class ProvidersIDETests: XCTestCase {
     func testJetBrainsPicksNewestQuotaFile() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("ide-tests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: home) }
+        let paths = ProviderPaths(home: home, env: [:])
         for (name, age) in [("PyCharm2025.3", -3600.0), ("WebStorm2026.1", 0)] {
-            let options = home.appendingPathComponent("Library/Application Support/JetBrains/\(name)/options")
+            let options = paths.appConfig("JetBrains").appending(path: "\(name)/options")
             try FileManager.default.createDirectory(at: options, withIntermediateDirectories: true)
             let file = options.appendingPathComponent("AIAssistantQuotaManager2.xml")
             try jetBrainsXML.write(to: file, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(age)], ofItemAtPath: file.path)
         }
-        XCTAssertEqual(try JetBrainsUsage.newestQuotaFile(home: home).1, "WebStorm2026.1")
-        XCTAssertThrowsError(try JetBrainsUsage.newestQuotaFile(home: home.appendingPathComponent("none")))
+        XCTAssertEqual(try JetBrainsUsage.newestQuotaFile(home: home, env: [:]).1, "WebStorm2026.1")
+        XCTAssertThrowsError(try JetBrainsUsage.newestQuotaFile(home: home.appendingPathComponent("none"), env: [:]))
     }
 }

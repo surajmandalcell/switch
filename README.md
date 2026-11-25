@@ -94,28 +94,46 @@ Install each coding tool separately. The Mac app goes in `~/Applications`, and t
 
 </details>
 
+## Screenshots
+
+Overview, Accounts, Settings, History, Utilities, and the menu bar. Click one to see it full size.
+
+<sub>All three apps share one Swift core. The Linux and Windows apps are Qt ports and are still in progress. Every shot uses made-up sample data.</sub>
+
+**Mac**
+
+<p>
+<a href="docs/readme/shots/mac/overview-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/mac/overview-dark.webp"><img src="docs/readme/shots/mac/overview-light.webp" alt="Overview on Mac" width="120"></picture></a>
+<a href="docs/readme/shots/mac/accounts-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/mac/accounts-dark.webp"><img src="docs/readme/shots/mac/accounts-light.webp" alt="Accounts on Mac" width="120"></picture></a>
+<a href="docs/readme/shots/mac/settings-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/mac/settings-dark.webp"><img src="docs/readme/shots/mac/settings-light.webp" alt="Settings on Mac" width="120"></picture></a>
+<a href="docs/readme/shots/mac/history-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/mac/history-dark.webp"><img src="docs/readme/shots/mac/history-light.webp" alt="History on Mac" width="120"></picture></a>
+<a href="docs/readme/shots/mac/utilities-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/mac/utilities-dark.webp"><img src="docs/readme/shots/mac/utilities-light.webp" alt="Utilities on Mac" width="120"></picture></a>
+<a href="docs/readme/shots/mac/menubar-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/mac/menubar-dark.webp"><img src="docs/readme/shots/mac/menubar-light.webp" alt="Menu bar on Mac" width="120"></picture></a>
+</p>
+
+**Linux**
+
+<p>
+<a href="docs/readme/shots/linux/overview-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/linux/overview-dark.webp"><img src="docs/readme/shots/linux/overview-light.webp" alt="Overview on Linux" width="120"></picture></a>
+<a href="docs/readme/shots/linux/accounts-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/linux/accounts-dark.webp"><img src="docs/readme/shots/linux/accounts-light.webp" alt="Accounts on Linux" width="120"></picture></a>
+<a href="docs/readme/shots/linux/settings-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/linux/settings-dark.webp"><img src="docs/readme/shots/linux/settings-light.webp" alt="Settings on Linux" width="120"></picture></a>
+<a href="docs/readme/shots/linux/history-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/linux/history-dark.webp"><img src="docs/readme/shots/linux/history-light.webp" alt="History on Linux" width="120"></picture></a>
+<a href="docs/readme/shots/linux/utilities-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/linux/utilities-dark.webp"><img src="docs/readme/shots/linux/utilities-light.webp" alt="Utilities on Linux" width="120"></picture></a>
+<a href="docs/readme/shots/linux/menubar-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/linux/menubar-dark.webp"><img src="docs/readme/shots/linux/menubar-light.webp" alt="Menu bar on Linux" width="120"></picture></a>
+</p>
+
+**Windows**
+
+<p>
+<a href="docs/readme/shots/windows/overview-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/windows/overview-dark.webp"><img src="docs/readme/shots/windows/overview-light.webp" alt="Overview on Windows" width="120"></picture></a>
+<a href="docs/readme/shots/windows/accounts-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/windows/accounts-dark.webp"><img src="docs/readme/shots/windows/accounts-light.webp" alt="Accounts on Windows" width="120"></picture></a>
+<a href="docs/readme/shots/windows/settings-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/windows/settings-dark.webp"><img src="docs/readme/shots/windows/settings-light.webp" alt="Settings on Windows" width="120"></picture></a>
+<a href="docs/readme/shots/windows/history-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/windows/history-dark.webp"><img src="docs/readme/shots/windows/history-light.webp" alt="History on Windows" width="120"></picture></a>
+<a href="docs/readme/shots/windows/utilities-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/windows/utilities-dark.webp"><img src="docs/readme/shots/windows/utilities-light.webp" alt="Utilities on Windows" width="120"></picture></a>
+<a href="docs/readme/shots/windows/menubar-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/shots/windows/menubar-dark.webp"><img src="docs/readme/shots/windows/menubar-light.webp" alt="Menu bar on Windows" width="120"></picture></a>
+</p>
+
 ## Learn more
-
-<details>
-<summary><b>Screenshots</b></summary>
-
-<br>
-
-![Overview with daily tokens and an activity calendar](docs/screenshots/overview-dark.png)
-
-| Account trends | Light appearance |
-| :---: | :---: |
-| ![Account trends and share of tokens](docs/screenshots/overview-insights.png) | ![Overview in light mode](docs/screenshots/overview-light.png) |
-
-| Menu bar in dark mode | Menu bar in light mode |
-| :---: | :---: |
-| ![Account limits and reset times in dark mode](docs/screenshots/menubar-dark.png) | ![Account limits and reset times in light mode](docs/screenshots/menubar-light.png) |
-
-![Accounts grouped by tool with usage and default controls](docs/screenshots/accounts-dark.png)
-
-<sub>App screenshots show real usage with email addresses hidden. Menu bar screenshots use Preview sample data.</sub>
-
-</details>
 
 <details>
 <summary><b>Accounts and access</b></summary>

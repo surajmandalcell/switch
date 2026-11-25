@@ -259,6 +259,8 @@ public struct ChatHistorySnapshot: Sendable, Equatable {
     public let reparsedFileCount: Int
     /// Threads that match the query, per app, before the app filter and the limit (the filter panel's counts).
     public var sourceCounts: [ChatThreadSource: Int] = [:]
+    /// Whole-library counts, independent of the query and app filter.
+    public var librarySourceCounts: [ChatThreadSource: Int] = [:]
 
     public init(
         threads: [ChatThreadSummary] = [],
@@ -790,6 +792,8 @@ public actor ChatHistoryIndex {
             unreadableRecordCount: cachedUnreadableRecordCount,
             reparsedFileCount: reparsedFileCount)
         snapshot.sourceCounts = found.reduce(into: [:]) { $0[$1.summary.appSource, default: 0] += 1 }
+        snapshot.librarySourceCounts = terms.isEmpty ? snapshot.sourceCounts
+            : all.reduce(into: [:]) { $0[$1.summary.appSource, default: 0] += 1 }
         return snapshot
     }
 

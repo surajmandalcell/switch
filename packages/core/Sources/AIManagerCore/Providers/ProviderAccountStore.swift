@@ -29,6 +29,7 @@ struct ProviderAccountStore {
     private let paths: ManagerPaths
     private let fileManager: FileManager
     private let environment: [String: String]
+    private let os: ProviderOS
     private let specs: [ProviderSpec]
     private let lock: OperationLock
     private let encoder: JSONEncoder
@@ -36,10 +37,11 @@ struct ProviderAccountStore {
 
     init(paths: ManagerPaths, fileManager: FileManager = .default,
          environment: [String: String] = ProcessInfo.processInfo.environment,
-         specs: [ProviderSpec] = ProviderCatalog.all) throws {
+         specs: [ProviderSpec] = ProviderCatalog.all, os: ProviderOS = .current) throws {
         self.paths = paths
         self.fileManager = fileManager
         self.environment = environment
+        self.os = os
         self.specs = specs
         self.lock = try OperationLock(
             at: paths.applicationSupport.appending(path: "provider-accounts/accounts.lock"),
@@ -60,6 +62,7 @@ struct ProviderAccountStore {
         paths.applicationSupport.appending(path: "provider-accounts", directoryHint: .isDirectory)
     }
     private var indexURL: URL { root.appending(path: "accounts.json") }
+    private var recoveryURL: URL { root.appending(path: "pending-switch.json") }
     private func vaultURL(_ providerID: ProviderID, _ id: UUID) -> URL {
         paths.vaultRoot.appending(path: providerID.rawValue, directoryHint: .isDirectory)
             .appending(path: "\(id.uuidString).json")
@@ -103,9 +106,12 @@ struct ProviderAccountStore {
 
     /// Identity of the live login in the real user home. Read-only; nil when not signed in.
     func liveIdentity(_ providerID: ProviderID) -> CredentialIdentity? {
-        guard let spec = spec(providerID), spec.style == .files,
-              let live = try? readLive(spec, home: nil), isComplete(spec, live) else { return nil }
-        return identity(spec, live)
+        guard let spec = spec(providerID), spec.style == .files else { return nil }
+        return try? lock.withLock {
+            guard !CoreSupport.entryExists(recoveryURL) else { return nil }
+            let live = try readLive(spec, home: nil)
+            return isComplete(spec, live) ? identity(spec, live) : nil
+        }
     }
 
     // MARK: Add and import
@@ -244,7 +250,7 @@ struct ProviderAccountStore {
 
     // MARK: Switch and delete
 
-    func makeDefault(_ accountID: UUID) throws -> SwitchResult {
+    func makeDefault(_ accountID: UUID, beforeIndexSave: () throws -> Void = {}) throws -> SwitchResult {
         try lock.withLock {
             var index = try readIndex()
             let target = try record(accountID, in: index)
@@ -252,10 +258,11 @@ struct ProviderAccountStore {
             let raw = spec.id.rawValue
             let previous = index.defaults[raw]
             var backup = indexURL
+            var publish: (() throws -> Void)?
             if spec.style == .files {
                 let targetCredential = try readVault(target)
                 try validateLiveWrite(spec, targetCredential, home: nil)
-                let outgoing = try readLive(spec, home: nil)
+                let outgoing = try readLive(spec, home: nil, requireReadableRows: true)
                 // ponytail: OpenCode 2 reads only its database, so auth.json would do nothing; write the credential row when the owner needs to switch between OpenCode Go accounts.
                 var databaseOwned = false
                 for file in spec.files where file.databaseRow != nil {
@@ -281,12 +288,24 @@ struct ProviderAccountStore {
                 }
                 // (b) Back up the live bytes, newest ten per provider.
                 backup = try writeBackup(spec.id, outgoing)
-                // (c) Write the target's files; restore the previous ones if a later file fails.
-                do {
-                    if !databaseOwned { try writeLive(spec, targetCredential, home: nil) }
-                } catch {
-                    try? writeLive(spec, outgoing, home: nil, restoringSnapshot: true)
-                    throw error
+                if !databaseOwned {
+                    let destinations = try spec.files.map { file in
+                        let url = CoreSupport.canonical(try liveURL(file, home: nil))
+                        var item = RecoveryItem(destination: url, backup: nil,
+                            expectedDigest: targetCredential.files[file.id].map(CoreSupport.digest) ?? "absent",
+                            previousDigest: outgoing.files[file.id].map(CoreSupport.digest) ?? "absent")
+                        if file.key != nil { item.previousBytes = try readBounded(url) }
+                        return item
+                    }
+                    let operation = RecoveryOperation(id: UUID(), kind: "switch-provider", phase: .prepared,
+                        source: target.credentialFile, destination: indexURL, backup: backup,
+                        touchedItems: destinations, previousDigest: digest(outgoing),
+                        previousDefaultAccountID: previous, previousAccount: try record(accountID, in: index))
+                    try syncPaths([backup, backup.deletingLastPathComponent(),
+                                   backupDirectory(spec.id).deletingLastPathComponent(), root, indexURL])
+                    try CoreSupport.atomicWrite(try encoder.encode(operation), to: recoveryURL, fileManager: fileManager)
+                    try syncPaths([recoveryURL, root])
+                    publish = { try self.writeLive(spec, targetCredential, home: nil, unchanged: outgoing.files) }
                 }
             }
             // (d) Set the default.
@@ -294,7 +313,15 @@ struct ProviderAccountStore {
             if let at = index.accounts.firstIndex(where: { $0.id == accountID }) {
                 index.accounts[at].lastUsedAt = Date()
             }
-            try writeIndex(index)
+            do {
+                try publish?()
+                try beforeIndexSave()
+                try writeIndex(index)
+                if publish != nil { try finishSwitch(spec) }
+            } catch {
+                if publish != nil { try recoverPendingSwitch(provider: spec.id) }
+                throw error
+            }
             return .init(accountID: accountID, backup: backup, previousAccountID: previous)
         }
     }
@@ -331,6 +358,7 @@ struct ProviderAccountStore {
     /// Prepares a private temp home and the command to run. The GUI opens it in Terminal.
     func startLogin(_ providerID: ProviderID, accountID: UUID? = nil) throws -> AccountLoginStart {
         guard let spec = spec(providerID), spec.style == .files,
+              spec.supportedOS.contains(os),
               let login = spec.login, let command = login.first else {
             throw AIManagerError.unsupportedSource("Provider \(providerID.rawValue) has no sign-in command.")
         }
@@ -340,10 +368,14 @@ struct ProviderAccountStore {
         try pruneStaleLogins()
         let session = AccountLoginSession(id: UUID(), providerID: providerID, createdAt: Date(), accountID: accountID)
         let home = loginHome(session.id)
-        var launchEnvironment = environment
-        launchEnvironment["HOME"] = home.path
+        let stagedEnvironment = ProviderPaths(home: home, env: environment.merging(spec.loginEnv) { _, new in new }, os: os)
+        var launch = ProviderPaths(home: home, env: stagedEnvironment.stagedEnvironment(), os: os)
         try lock.withLock {
             try CoreSupport.privateDirectory(home, fileManager: fileManager)
+            if os == .Windows {
+                try CoreSupport.privateDirectory(launch.roaming, fileManager: fileManager)
+                try CoreSupport.privateDirectory(launch.local, fileManager: fileManager)
+            }
             for file in spec.files {
                 guard let name = file.homeEnv else { continue }
                 guard CoreSupport.safeRelativePath(file.path) else { throw AIManagerError.unsafePath(file.path) }
@@ -358,17 +390,21 @@ struct ProviderAccountStore {
                 } else {
                     parent = (file.path as NSString).deletingLastPathComponent
                 }
-                let directory = parent.isEmpty ? home : home.appending(path: parent, directoryHint: .isDirectory)
+                let directory: URL
+                if file.root == .gcloud {
+                    directory = ProviderPaths(home: home, env: [:], os: os).root(.gcloud)
+                } else {
+                    directory = parent.isEmpty ? home : home.appending(path: parent, directoryHint: .isDirectory)
+                }
                 try CoreSupport.privateDirectory(directory, fileManager: fileManager)
-                launchEnvironment[name] = directory.path
+                launch.set(name, to: directory.path)
             }
             var index = try readIndex()
             index.pending.append(session)
             try writeIndex(index)
         }
-        launchEnvironment.merge(spec.loginEnv) { _, new in new }
         return .init(session: session, launchSpec: .init(
-            executable: executable, arguments: Array(login.dropFirst()), environment: launchEnvironment))
+            executable: executable, arguments: Array(login.dropFirst()), environment: launch.env))
     }
 
     func checkLogin(_ id: UUID) throws -> AccountLoginCheck {
@@ -482,6 +518,121 @@ struct ProviderAccountStore {
     }
 
     private func readIndex() throws -> Index {
+        try recoverPendingSwitch()
+        return try loadIndex()
+    }
+
+    /// Undoes a provider switch that did not reach its index save. Never writes over a login that changed after the switch:
+    /// a record that is invalid, already committed, or older than the live files is dropped, and every live file stays.
+    /// The outgoing login always stays in its backup file.
+    private func recoverPendingSwitch(provider: ProviderID? = nil) throws {
+        guard CoreSupport.entryExists(recoveryURL) else { return }
+        var name = provider?.rawValue ?? "the pending provider login"
+        func keepLive() throws {
+            try fileManager.removeItem(at: recoveryURL)
+            try syncPaths([root])
+        }
+        do {
+            // `previousAccount` holds the target account as it was before the switch.
+            guard let operation = try? decoder.decode(RecoveryOperation.self, from: Data(contentsOf: recoveryURL)),
+                  let target = operation.previousAccount else { return try keepLive() }
+            let providerID = target.identity.providerID
+            name = providerID.rawValue
+            guard operation.kind == "switch-provider", let spec = spec(providerID), spec.style == .files,
+                  CoreSupport.sameLocation(operation.destination, indexURL),
+                  CoreSupport.sameLocation(operation.source, vaultURL(providerID, target.id)),
+                  CoreSupport.sameLocation(operation.backup.deletingLastPathComponent(), backupDirectory(providerID)),
+                  operation.backup.pathExtension == "json",
+                  let items = operation.touchedItems, items.count == spec.files.count,
+                  zip(spec.files, items).allSatisfy({ file, item in
+                      (try? liveURL(file, home: nil)).map { CoreSupport.sameLocation($0, item.destination) } == true
+                  }),
+                  let outgoing = try? decoder.decode(ProviderCredential.self, from: Data(contentsOf: operation.backup)),
+                  digest(outgoing) == operation.previousDigest,
+                  zip(spec.files, items).allSatisfy({ file, item in
+                      (outgoing.files[file.id].map(CoreSupport.digest) ?? "absent") == item.previousDigest
+                  }) else { return try keepLive() }
+            // The index save is the commit point: once it names the target, the switch stands.
+            // An unreadable index cannot show a commit, so the files still go back first.
+            if let index = try? loadIndex(), index.defaults[providerID.rawValue] == target.id,
+               let saved = index.accounts.first(where: { $0.id == target.id }),
+               operation.previousDefaultAccountID != target.id || saved.lastUsedAt != target.lastUsedAt {
+                return try finishSwitch(spec)
+            }
+            let current = try readLive(spec, home: nil, requireReadableRows: true)
+            var restore: [(LiveFile, RecoveryItem)] = []
+            for (file, item) in zip(spec.files, items) where current.files[file.id] != outgoing.files[file.id] {
+                // Anything other than the bytes Switch wrote is a newer login, such as a CLI sign-in or token refresh.
+                guard (current.files[file.id].map(CoreSupport.digest) ?? "absent") == item.expectedDigest else { return try keepLive() }
+                restore.append((file, item))
+            }
+            for (file, item) in restore {
+                if let key = file.key, try restoreSharedFile(item, file: file, key: key) { continue }
+                try writeLive(spec, outgoing, home: nil, restoringSnapshot: true, only: file.id)
+            }
+            var index = try loadIndex()
+            let position = try position(target.id, in: index)
+            if index.defaults[providerID.rawValue] != operation.previousDefaultAccountID
+                || index.accounts[position].lastUsedAt != target.lastUsedAt {
+                index.defaults[providerID.rawValue] = operation.previousDefaultAccountID
+                index.accounts[position].lastUsedAt = target.lastUsedAt
+                try writeIndex(index)
+            }
+            try finishSwitch(spec)
+        } catch {
+            throw AIManagerError.operationFailed("Could not restore \(name): \(error.localizedDescription)")
+        }
+    }
+
+    // Restore exact bytes when other members match. Otherwise the normal member writer preserves their edits.
+    private func restoreSharedFile(_ item: RecoveryItem, file: LiveFile, key: String) throws -> Bool {
+        let url = item.destination
+        guard let bytes = try readBounded(url),
+              var current = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { return false }
+        current.removeValue(forKey: key)
+        var previous: [String: Any] = [:]
+        if let old = item.previousBytes, !old.isEmpty {
+            guard let object = try JSONSerialization.jsonObject(with: old) as? [String: Any] else { return false }
+            previous = object
+            previous.removeValue(forKey: key)
+        }
+        guard NSDictionary(dictionary: previous).isEqual(to: current) else { return false }
+        if let old = item.previousBytes {
+            let attributes = try fileManager.attributesOfItem(atPath: url.path)
+            try replaceFile(url, with: old, mode: (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0o600)
+        } else {
+            try validateFileRemoval(url, file: file, home: nil)
+            try fileManager.removeItem(at: url)
+        }
+        return true
+    }
+
+    private func finishSwitch(_ spec: ProviderSpec) throws {
+        var entries: Set<URL> = [indexURL, root]
+        for file in spec.files where file.sqliteTable == nil {
+            var url = CoreSupport.canonical(try liveURL(file, home: nil))
+            if CoreSupport.entryExists(url) { entries.insert(url) }
+            repeat { url.deleteLastPathComponent() } while !CoreSupport.entryExists(url) && url.pathComponents.count > 1
+            entries.insert(url)
+        }
+        try syncPaths(Array(entries))
+        try fileManager.removeItem(at: recoveryURL)
+        try syncPaths([root])
+    }
+
+    private func syncPaths(_ entries: [URL]) throws {
+        // WindowsFiles flushes private files and publishes them with MOVEFILE_WRITE_THROUGH.
+#if !os(Windows)
+        for url in entries {
+            let fd = open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
+            guard fd >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+            defer { close(fd) }
+            guard fsync(fd) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        }
+#endif
+    }
+
+    private func loadIndex() throws -> Index {
         guard CoreSupport.entryExists(indexURL) else { return Index() }
         let values = try indexURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true,
@@ -597,8 +748,8 @@ struct ProviderAccountStore {
         let url = directory.appending(path: "\(stamp)-\(UUID().uuidString.prefix(4)).json")
         try CoreSupport.atomicWrite(try encoder.encode(credential), to: url, fileManager: fileManager)
         let names = ((try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? [])
-            .filter { $0.hasSuffix(".json") }.sorted(by: >)
-        for name in names.dropFirst(Self.maxBackups) {
+            .filter { $0.hasSuffix(".json") && $0 != url.lastPathComponent }.sorted(by: >)
+        for name in names.dropFirst(Self.maxBackups - 1) {
             try? fileManager.removeItem(at: directory.appending(path: name))
         }
         return url
@@ -609,20 +760,28 @@ struct ProviderAccountStore {
     /// `home` is a temp sign-in home that mirrors the user home layout; nil means the real one.
     private func liveURL(_ file: LiveFile, home: URL?) throws -> URL {
         guard CoreSupport.safeRelativePath(file.path) else { throw AIManagerError.unsafePath(file.path) }
-        if let home { return home.appending(path: file.path) }
-        if let name = file.homeEnv, let value = environment[name], !value.isEmpty {
-            let directory = URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true)
-            guard paths.isolationRoot.map({ CoreSupport.isContained(directory, by: $0) }) ?? true else {
-                throw AIManagerError.unsafePath(directory.path)
-            }
+        let resolver = ProviderPaths(home: home ?? paths.userHome, env: home == nil ? environment : [:], os: os)
+        let url: URL
+        if let root = file.root {
+            let subpath = file.rootSubpath ?? (file.path as NSString).lastPathComponent
+            guard CoreSupport.safeRelativePath(subpath) else { throw AIManagerError.unsafePath(subpath) }
+            url = resolver.root(root).appending(path: subpath)
+        } else if let name = file.homeEnv, let directory = resolver.override(name) {
             let subpath = file.homeEnvSubpath ?? (file.path as NSString).lastPathComponent
             guard CoreSupport.safeRelativePath(subpath) else { throw AIManagerError.unsafePath(subpath) }
-            return directory.appending(path: subpath)
+            url = directory.appending(path: subpath)
+        } else {
+            url = resolver.home.appending(path: file.path)
         }
-        return paths.userHome.appending(path: file.path)
+        guard paths.allowsRead(url) else { throw AIManagerError.unsafePath(url.path) }
+        return url
     }
 
-    private func readLive(_ spec: ProviderSpec, home: URL?) throws -> ProviderCredential {
+    func credentialPaths(_ providerID: ProviderID) -> [String] {
+        spec(providerID)?.files.compactMap { try? liveURL($0, home: nil).path } ?? []
+    }
+
+    private func readLive(_ spec: ProviderSpec, home: URL?, requireReadableRows: Bool = false) throws -> ProviderCredential {
         var files: [String: Data] = [:]
         for file in spec.files {
             let url = try liveURL(file, home: home)
@@ -631,7 +790,7 @@ struct ProviderAccountStore {
                 continue
             }
             if let table = file.sqliteTable {
-                files[file.id] = try readRows(url, table: table, keys: file.sqliteKeys)
+                files[file.id] = try readRows(url, table: table, keys: file.sqliteKeys, requireReadable: requireReadableRows)
             } else if let data = try readBounded(url) {
                 if let key = file.key {
                     if let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -647,10 +806,12 @@ struct ProviderAccountStore {
         return ProviderCredential(files: files)
     }
 
-    private func writeLive(_ spec: ProviderSpec, _ credential: ProviderCredential, home: URL?, restoringSnapshot: Bool = false) throws {
+    private func writeLive(_ spec: ProviderSpec, _ credential: ProviderCredential, home: URL?,
+                           restoringSnapshot: Bool = false, only: String? = nil, unchanged: [String: Data]? = nil) throws {
         if !restoringSnapshot { try validateLiveWrite(spec, credential, home: home) }
-        for file in spec.files {
+        for file in spec.files where only == nil || only == file.id {
             let data = credential.files[file.id]
+            if let unchanged, unchanged[file.id] == data { continue }
             let url = try liveURL(file, home: home)
             if let table = file.sqliteTable {
                 if data == nil, try readRows(url, table: table, keys: file.sqliteKeys) == nil { continue }
@@ -703,9 +864,10 @@ struct ProviderAccountStore {
 
     private func validateFileRemoval(_ url: URL, file: LiveFile, home: URL?) throws {
         var root = home ?? paths.userHome
-        if home == nil, let name = file.homeEnv, let value = environment[name], !value.isEmpty {
-            let configured = URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true)
-            if paths.isolationRoot.map({ CoreSupport.isContained(configured, by: $0) }) ?? true { root = configured }
+        if home == nil {
+            let resolver = ProviderPaths(home: paths.userHome, env: environment, os: os)
+            if let providerRoot = file.root { root = resolver.root(providerRoot) }
+            else if let name = file.homeEnv, let configured = resolver.override(name) { root = configured }
         }
         var info = stat()
         guard CoreSupport.isContained(url, by: root),
@@ -735,13 +897,19 @@ struct ProviderAccountStore {
     private func replaceFile(_ url: URL, with data: Data, mode: Int) throws {
 #if os(Windows)
         // Owner-only whatever `mode` says; missing folders are created owner-only, existing ones keep their access.
-        let target = url.resolvingSymlinksInPath()
+        let target = CoreSupport.canonical(url)
         let directory = target.deletingLastPathComponent()
-        if !CoreSupport.entryExists(directory) { try CoreSupport.privateDirectory(directory, fileManager: fileManager) }
+        try CoreSupport.privateDirectory(directory, fileManager: fileManager, preserveExistingACL: true)
         try WindowsFiles.writePrivate(data, to: target)
 #else
-        let target = url.resolvingSymlinksInPath()
+        let target = CoreSupport.canonical(url)
         let directory = target.deletingLastPathComponent()
+        var createdParents: [URL] = []
+        var ancestor = directory
+        while !CoreSupport.entryExists(ancestor), ancestor.pathComponents.count > 1 {
+            ancestor.deleteLastPathComponent()
+            createdParents.append(ancestor)
+        }
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true,
                                         attributes: [.posixPermissions: 0o700])
         let temporary = directory.appending(path: ".\(target.lastPathComponent).\(UUID().uuidString).tmp")
@@ -751,6 +919,7 @@ struct ProviderAccountStore {
             guard rename(temporary.path, target.path) == 0 else {
                 throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
             }
+            try syncPaths(createdParents)
         } catch {
             try? fileManager.removeItem(at: temporary)
             throw error
@@ -762,20 +931,27 @@ struct ProviderAccountStore {
 
     private static let lockedMessage = "The app database is busy. Quit the app, then switch again."
 
-    private func readRows(_ url: URL, table: String, keys: [String]) throws -> Data? {
+    private func readRows(_ url: URL, table: String, keys: [String], requireReadable: Bool = false) throws -> Data? {
         let url = url.resolvingSymlinksInPath()
         guard CoreSupport.entryExists(url), Self.isIdentifier(table), !keys.isEmpty else { return nil }
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            sqlite3_close(db)
+        func unreadable(_ status: Int32) throws -> Data? {
+            if status == SQLITE_BUSY || status == SQLITE_LOCKED { throw AIManagerError.operationFailed(Self.lockedMessage) }
+            if requireReadable { throw AIManagerError.operationFailed("Could not read the saved login rows in \(url.lastPathComponent).") }
             return nil
+        }
+        var db: OpaquePointer?
+        let opened = sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil)
+        guard opened == SQLITE_OK else {
+            sqlite3_close(db)
+            return try unreadable(opened)
         }
         defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 1_500)
         let marks = keys.indices.map { "?\($0 + 1)" }.joined(separator: ",")
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT key, value FROM \(table) WHERE key IN (\(marks))", -1,
-                                 &statement, nil) == SQLITE_OK else { return nil }
+        let prepared = sqlite3_prepare_v2(db, "SELECT key, value FROM \(table) WHERE key IN (\(marks))", -1,
+                                         &statement, nil)
+        guard prepared == SQLITE_OK else { return try unreadable(prepared) }
         defer { sqlite3_finalize(statement) }
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         for (offset, key) in keys.enumerated() {
@@ -792,16 +968,17 @@ struct ProviderAccountStore {
                     start: value, count: Int(sqlite3_column_bytes(statement, 1))), as: UTF8.self)
             } else if status == SQLITE_DONE {
                 break
-            } else if status == SQLITE_BUSY || status == SQLITE_LOCKED {
-                throw AIManagerError.operationFailed(Self.lockedMessage)
             } else {
-                return nil
+                return try unreadable(status)
             }
         }
         return rows.isEmpty ? nil : try Self.json(rows)
     }
 
     private func writeRows(_ url: URL, file: LiveFile, data: Data) throws {
+        if os != .macOS, file.root == .cursor || file.root == .kiro {
+            throw AIManagerError.unsupportedSource("Change accounts in the provider app. Switch can read this database on \(os.rawValue) but cannot safely change its login.")
+        }
         let url = url.resolvingSymlinksInPath()
         guard let table = file.sqliteTable, Self.isIdentifier(table) else {
             throw AIManagerError.unsafePath(file.path)

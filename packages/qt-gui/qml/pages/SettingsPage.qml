@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Window
+import QtQuick.Effects
 
 // Settings page (settings.md 2): every card and row with its spec copy. Each row reads and writes one key
 // through Prefs (the helper's settings topic); Open at Login and the menu shortcut belong to the platform.
@@ -20,7 +21,12 @@ Item {
   readonly property var hitAccounts: searching ? win.accountHits : []
   // --script states --page Settings: the Accounts card (claude-shell and Terminal app rows)
   function captureSteps(d) {
-    return [function () { scroll.scrollTo(accountsCard.y) }, 400, function () { d.shot(Window.window, "settings-accounts") }]
+    return [function () { scroll.scrollTo(accountsCard.y) }, 400, function () { d.shot(Window.window, "settings-accounts") },
+            function () { scroll.scrollTo(aboutCard.y - 120) }, 400, function () { d.shot(Window.window, "settings-about") },
+            function () { scroll.scrollTo(1e6) }, 400, function () { d.shot(Window.window, "settings-end") },
+            // Add Account morph: Accounts draws it wide; back on Settings it is square again
+            function () { Window.window.show(1) }, 600, function () { d.shot(Window.window, "accounts-add-wide") },
+            function () { Window.window.show(2) }, 600, function () { d.shot(Window.window, "settings-add-square") }]
   }
   function shows(id) { return !searching || hits[id] === true }
   function anyShows(ids) { return ids.some(shows) }
@@ -62,6 +68,40 @@ Item {
     objectName: "pref-" + key
     current: Math.max(0, values.indexOf(Prefs.value(key)))
     onPicked: function (i) { Prefs.set(key, values[i]); current = Qt.binding(function () { return Math.max(0, values.indexOf(Prefs.value(key))) }) }
+  }
+
+  readonly property string repo: "https://github.com/samhqapp/switch"
+  // Settings > About link rows: the label left, the link title and an up-right arrow right (Mac AboutLinkRow).
+  component LinkRow: SettingsRow {
+    id: lr
+    property string url
+    property string linkTitle
+    AboutLink { text: lr.linkTitle; url: lr.url; anchors.verticalCenter: parent.verticalCenter }
+  }
+  component AboutLink: Item {
+    id: ln
+    property string text
+    property string url
+    implicitWidth: lnRow.width
+    implicitHeight: 20
+    width: implicitWidth
+    height: implicitHeight
+    activeFocusOnTab: true
+    Accessible.role: Accessible.Link
+    Accessible.name: text
+    Accessible.onPressAction: Qt.openUrlExternally(url)
+    Keys.onSpacePressed: Qt.openUrlExternally(url)
+    Keys.onReturnPressed: Qt.openUrlExternally(url)
+    FocusFill { anchors.margins: -2; radius: 4; visible: ln.activeFocus && App.keyboardMode }
+    Row {
+      id: lnRow
+      spacing: 4
+      anchors.verticalCenter: parent.verticalCenter
+      Txt { role: "secondary"; color: Theme.secondary; text: ln.text; anchors.verticalCenter: parent.verticalCenter }
+      Icon { name: "arrowUpRight"; size: 9; color: Theme.tertiary; anchors.verticalCenter: parent.verticalCenter }
+    }
+    ToolTipArea { text: ln.url }
+    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.openUrlExternally(ln.url) }
   }
 
   PageHeader { id: header; width: parent.width; placeholder: "Search settings…" }
@@ -196,16 +236,22 @@ Item {
       // settings.md claude-shell: the switch shows the marked line's presence; a toggle sets it, then re-reads it.
       // On failure a red line under the help says "Couldn’t update the shell setup. <error>".
       SRow { sid: "claude-shell"; group: page.gAccounts; title: "Use the selected Claude account in terminals"
-        help: "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
+        help: shellLine.supported ? "Adds one line to ~/.zshrc so a plain claude command uses the default Claude account. A backup is kept."
+                                  : "Not available on Windows yet. PowerShell and Command Prompt don’t read ~/.zshrc."
         error: shellLine.error
         Switch {
           id: shellLine
           objectName: "pref-claudeShell"
           property string error: ""
-          enabled: Helper.hasMethod("claude.shellIntegration.set")
+          property bool supported: true   // claude.shellIntegration.get says false on Windows
+          enabled: supported && Helper.hasMethod("claude.shellIntegration.set")
           function read() {
             if (Helper.hasMethod("claude.shellIntegration.get"))
-              Helper.call("claude.shellIntegration.get", {}, function (r, err) { if (!err) shellLine.checked = r.enabled === true })
+              Helper.call("claude.shellIntegration.get", {}, function (r, err) {
+                if (err) return
+                shellLine.supported = r.shellIntegrationSupported !== false
+                shellLine.checked = r.enabled === true
+              })
           }
           Component.onCompleted: read()
           onToggled: function (on) {
@@ -323,6 +369,69 @@ Item {
                                         action: "Reset settings", destructive: true, onAccept: function () { rec.recording = false; Prefs.reset() } })
         }
       }
+    }
+
+    // Settings > About (Mac SwitchAboutSettings): a titled hero card, Links, Credits, then the copyright.
+    // Not in the search index, so it hides while a search runs. The About window and its Animation card are Mac only.
+    Card {
+      id: aboutCard
+      objectName: "about-card"
+      title: "About"
+      visible: !page.searching
+      Column {
+        width: parent.width
+        topPadding: 16
+        bottomPadding: 16
+        Image {
+          anchors.horizontalCenter: parent.horizontalCenter
+          source: "assets/appicon.png"; width: 84; height: 84; sourceSize: Qt.size(168, 168)
+          Accessible.ignored: true
+          layer.enabled: true
+          layer.effect: MultiEffect { shadowEnabled: true; shadowColor: "black"; shadowOpacity: 0.18; shadowBlur: 0.4; shadowVerticalOffset: 4 }
+        }
+        Item { width: 1; height: 10 }
+        Txt { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; text: "Switch" }
+        Item { width: 1; height: 3 }
+        Txt { anchors.horizontalCenter: parent.horizontalCenter; role: "secondary"; color: Theme.secondary
+              text: "Coding accounts and usage. Right in your " + (Theme.trayName || "tray") + "." }
+        Item { width: 1; height: 6 }
+        Txt { anchors.horizontalCenter: parent.horizontalCenter; role: "secondary"; color: Theme.secondary
+              text: "Version " + ((Helper.server && Helper.server.serverVersion) || Qt.application.version || "unknown") }
+        Item { width: 1; height: 14 }
+        PushButton { anchors.horizontalCenter: parent.horizontalCenter; text: "What's New"; onClicked: Qt.openUrlExternally(page.repo + "/releases") }
+      }
+    }
+    readonly property var aboutLinks: [
+      { label: "Website", title: "switch.samhq.app", url: "https://switch.samhq.app" },
+      { label: "Release notes", title: "GitHub releases", url: page.repo + "/releases" },
+      { label: "Report a problem", title: "GitHub issues", url: page.repo + "/issues" },
+      { label: "License", title: "MIT license", url: page.repo + "/blob/master/LICENSE" }
+    ]
+    readonly property var aboutCredits: [
+      { label: "OpenUsage", title: "Usage adapters", url: "https://github.com/robinebers/openusage" },
+      { label: "CodexBar", title: "Usage adapters", url: "https://github.com/steipete/CodexBar" }
+    ]
+    Card {
+      title: "Links"
+      visible: !page.searching
+      Repeater {
+        model: scroll.aboutLinks
+        LinkRow { title: modelData.label; linkTitle: modelData.title; url: modelData.url; last: index === scroll.aboutLinks.length - 1 }
+      }
+    }
+    Card {
+      title: "Credits"
+      visible: !page.searching
+      Repeater {
+        model: scroll.aboutCredits
+        LinkRow { title: modelData.label; linkTitle: modelData.title; url: modelData.url; last: index === scroll.aboutCredits.length - 1 }
+      }
+    }
+    Item {
+      visible: !page.searching
+      width: parent.width
+      height: 16
+      Txt { anchors.horizontalCenter: parent.horizontalCenter; role: "secondary"; color: Theme.secondary; text: "© 2026 Suraj Mandal" }
     }
 
     // shell.md 4.1 end cards, only while fewer than 3 settings match

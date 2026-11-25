@@ -51,10 +51,10 @@ struct WireProvider: Encodable {
     let dashboard: String?
     /// The provider's own login exists in the user's home (`providers.detectSignedIn`).
     let signedIn: Bool
-    /// The login files a `files` provider reads, as the Mac "Read from" row shows them (`~/.codebuff/credentials.json`).
+    /// The resolved login files a provider reads.
     let credentialPaths: [String]
 
-    init(_ descriptor: ProviderDescriptor, signedIn: Set<String>) {
+    init(_ descriptor: ProviderDescriptor, signedIn: Set<String>, credentialPaths: [String]) {
         let spec = ProviderCatalog.spec(descriptor.id)
         id = descriptor.id.rawValue
         displayName = descriptor.displayName
@@ -67,7 +67,7 @@ struct WireProvider: Encodable {
         login = spec?.login
         dashboard = spec?.dashboard?.absoluteString
         self.signedIn = signedIn.contains(descriptor.id.rawValue)
-        credentialPaths = spec?.files.map { "~/" + $0.path } ?? []
+        self.credentialPaths = credentialPaths
     }
 }
 
@@ -133,6 +133,7 @@ struct WireThread: Encodable {
 
 struct WireThreadList: Encodable {
     let threads: [WireThread]
+    let appCounts: [String: Int]
     let total: Int
     let matching: Int
     let skippedFiles: Int
@@ -142,8 +143,9 @@ struct WireThreadList: Encodable {
     /// True when the request's `libraryRevision` is current: `threads` is then empty, keep the last list.
     let unchanged: Bool
 
-    init(_ snapshot: ChatHistorySnapshot, unchanged: Bool = false) {
+    init(_ snapshot: ChatHistorySnapshot, appCounts: [String: Int], unchanged: Bool = false) {
         threads = unchanged ? [] : snapshot.threads.map(WireThread.init)
+        self.appCounts = appCounts
         libraryRevision = snapshot.libraryRevision
         self.unchanged = unchanged
         total = snapshot.totalThreadCount
@@ -418,13 +420,6 @@ struct WireUsageHistory: Encodable {
     /// Absent when the request said `points: false`.
     let points: [UsageHistoryPoint]?
     let summary: UsageSummary
-
-    init(_ snapshot: UsageHistorySnapshot, summary: UsageSummary, points: Bool) {
-        today = snapshot.today
-        unavailableSources = snapshot.unavailableSources
-        self.points = points ? snapshot.points : nil
-        self.summary = summary
-    }
 }
 
 struct WireDaySession: Encodable {

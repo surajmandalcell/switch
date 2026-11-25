@@ -288,7 +288,7 @@ private struct ChatThreadButton: View {
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .overlay(alignment: .bottom) { AIMHairline().padding(.horizontal, 6).opacity(0.45) }
+    .overlay(alignment: .bottom) { AIMHairline(opacity: 0.45).padding(.horizontal, 6) }
     .onHover { hovered = $0 }
     .animation(AIMMotion.fade(AIMMotion.hover), value: hovered)
     .animation(AIMMotion.fade(AIMMotion.state), value: selected)

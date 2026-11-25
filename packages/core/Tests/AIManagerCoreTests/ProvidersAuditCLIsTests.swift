@@ -307,8 +307,10 @@ final class ProvidersAuditCLIsTests: XCTestCase {
     func testJetBrainsNewerLogBeatsStaleXMLButOlderLogDoesNot() throws {
         let home = FileManager.default.temporaryDirectory.appending(path: "jb-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: home) }
-        let options = home.appending(path: "Library/Application Support/JetBrains/IntelliJIdea2026.1/options")
-        let logs = home.appending(path: "Library/Logs/JetBrains/IntelliJIdea2026.1")
+        let paths = ProviderPaths(home: home, env: [:])
+        let options = paths.appConfig("JetBrains").appending(path: "IntelliJIdea2026.1/options")
+        let logRoot = paths.ideLogs("JetBrains").appending(path: "IntelliJIdea2026.1")
+        let logs = paths.os == .macOS ? logRoot : logRoot.appending(path: "log")
         try FileManager.default.createDirectory(at: options, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
         let xmlFile = options.appending(path: "AIAssistantQuotaManager2.xml")
@@ -320,13 +322,13 @@ final class ProvidersAuditCLIsTests: XCTestCase {
         try (refillLine + "\n" + quotaLine + "\n").write(to: logs.appending(path: "idea.log"), atomically: true, encoding: .utf8)
 
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_600_000_000)], ofItemAtPath: xmlFile.path)
-        XCTAssertEqual(try JetBrainsUsage.read(home: home).windows[0].usedPercent ?? 0, 34.6495294, accuracy: 1e-6)
+        XCTAssertEqual(try JetBrainsUsage.read(home: home, env: [:]).windows[0].usedPercent ?? 0, 34.6495294, accuracy: 1e-6)
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_900_000_000)], ofItemAtPath: xmlFile.path)
-        XCTAssertEqual(try JetBrainsUsage.read(home: home).windows[0].usedPercent ?? 0, 25, accuracy: 1e-9)
+        XCTAssertEqual(try JetBrainsUsage.read(home: home, env: [:]).windows[0].usedPercent ?? 0, 25, accuracy: 1e-9)
 
         // No quota XML at all: the log still names the quota.
         try FileManager.default.removeItem(at: xmlFile)
-        let logOnly = try JetBrainsUsage.read(home: home)
+        let logOnly = try JetBrainsUsage.read(home: home, env: [:])
         XCTAssertEqual(logOnly.organization, "IntelliJIdea2026.1")
         XCTAssertEqual(logOnly.windows[0].usedPercent ?? 0, 34.6495294, accuracy: 1e-6)
     }
