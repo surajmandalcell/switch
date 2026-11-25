@@ -22,20 +22,4 @@ final class JSONIntSafetyTests: XCTestCase {
         XCTAssertEqual(JSON(9.2e18).int, 9_200_000_000_000_000_000)
         XCTAssertEqual(Fmt.int(Double(Int.max)), nil)
     }
-
-    func testDeepSeekHugeBucketDoesNotCrash() throws {
-        let now = Date(timeIntervalSince1970: 1_779_796_800)
-        var utc = Calendar(identifier: .gregorian)
-        utc.timeZone = TimeZone(identifier: "UTC")!
-        let day = Int(now.timeIntervalSince1970)
-        let summary = try DeepSeekUsage.mapByAPIKey(
-            amount: JSON(data: Data("""
-            {"code":0,"data":{"biz_data":{"series":[{"api_key":"k","model":"m","buckets":[{"time":\(day),
-             "usage":{"RESPONSE_TOKEN":1e300,"PROMPT_CACHE_MISS_TOKEN":1e300,"REQUEST":-1e300}}]}]}}}
-            """.utf8)),
-            cost: JSON(data: Data(#"{"code":0,"data":{"biz_data":{"data":[]}}}"#.utf8)),
-            now: now, calendar: utc)
-        XCTAssertGreaterThanOrEqual(summary.todayTokens, 0)
-        XCTAssertGreaterThanOrEqual(summary.periodRequests, 0)
-    }
 }

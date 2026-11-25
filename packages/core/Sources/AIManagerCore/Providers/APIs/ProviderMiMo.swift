@@ -4,108 +4,64 @@ extension ProviderCatalog {
     static let mimo = ProviderSpec(
         id: "mimo", name: "Xiaomi MiMo",
         fields: [
-            CredentialField("cookie", "Cookie header", optional: true,
-                            placeholder: "api-platform_serviceToken and userId from platform.xiaomimimo.com"),
+            CredentialField("apiKey", "Token Plan API key", optional: true, env: ["MIMO_API_KEY"]),
+            CredentialField("region", "Region", secure: false, optional: true, placeholder: "cn or sgp"),
             CredentialField("localUsagePath", "Local usage cache", secure: false, optional: true,
                             placeholder: MiMoUsage.defaultLocalPath, env: ["MIMO_LOCAL_USAGE_PATH"]),
         ],
         dashboard: "https://platform.xiaomimimo.com/#/console/balance",
         usage: { credential in
-            // Without a usable web session, fall back to the local token cache when it exists.
-            do {
-                guard let raw = credential["cookie"] else {
-                    throw ProviderError.missingCredential("Add a Cookie header from platform.xiaomimimo.com.")
-                }
-                let cookie = try MiMoUsage.cookie(raw)
-                let headers = [
-                    "Accept": "application/json, text/plain, */*", "Cookie": cookie,
-                    "Accept-Language": "en-US,en;q=0.9", "x-timeZone": "UTC+01:00",
-                    "Origin": "https://platform.xiaomimimo.com",
-                    "Referer": "https://platform.xiaomimimo.com/#/console/balance",
-                ]
-                let base = "https://platform.xiaomimimo.com/api/v1"
-                async let balance = HTTP.send(base + "/balance", headers: headers)
-                async let detail = try? HTTP.send(base + "/tokenPlan/detail", headers: headers)
-                async let usage = try? HTTP.send(base + "/tokenPlan/usage", headers: headers)
-                let balanceResponse = try await balance
-                // An expired session redirects to the login flow.
-                if (300..<400).contains(balanceResponse.status) {
-                    throw ProviderError.unauthorized("MiMo session expired. Paste a new Cookie header.")
-                }
-                try HTTP.check(balanceResponse)
-                guard let balanceJSON = try? balanceResponse.json() else {
-                    throw ProviderError.unauthorized("MiMo session expired. Paste a new Cookie header.")
-                }
-                return try MiMoUsage.map(balance: balanceJSON,
-                                         detail: await detail.flatMap { try? $0.json() },
-                                         usage: await usage.flatMap { try? $0.json() })
-            } catch let error as ProviderError where error.needsSignIn {
+            guard let key = credential["apiKey"] else {
+                // Without a key, show the local token cache when it exists.
                 if let local = MiMoUsage.local(path: credential["localUsagePath"] ?? MiMoUsage.defaultLocalPath) {
                     return local
                 }
-                throw error
+                throw ProviderError.missingCredential("Add a MiMo Token Plan API key.")
             }
+            let region = (credential["region"] ?? "cn").lowercased()
+            guard region == "cn" || region == "sgp" else {
+                throw ProviderError.missingCredential("MiMo region must be cn or sgp.")
+            }
+            let response = try await HTTP.send("https://token-plan-\(region).xiaomimimo.com/v1/platform/token_plan",
+                                               headers: HTTP.bearer(key))
+            if response.status == 401 || response.status == 403 {
+                throw ProviderError.unauthorized("MiMo rejected this API key. Check the key and its region.")
+            }
+            try HTTP.check(response)
+            return try MiMoUsage.map(try response.json())
         })
 }
 
-/// Pasted Cookie headers often keep the "Cookie:" label or surrounding quotes.
-enum PastedCookie {
-    static func clean(_ raw: String) -> String {
-        let trim = CharacterSet(charactersIn: "\"'").union(.whitespacesAndNewlines)
-        var text = raw.trimmingCharacters(in: trim)
-        if text.lowercased().hasPrefix("cookie:") { text = String(text.dropFirst(7)) }
-        return text.trimmingCharacters(in: trim)
-    }
-}
-
 enum MiMoUsage {
-    /// Keeps only the cookies MiMo reads; both `api-platform_serviceToken` and `userId` are required.
-    static func cookie(_ header: String) throws -> String {
-        let keep = ["api-platform_serviceToken", "userId", "api-platform_ph", "api-platform_slh"]
-        let header = PastedCookie.clean(header)
-        let pairs = keep.sorted().compactMap { name in Fmt.cookie(name, in: header).map { "\(name)=\($0)" } }
-        guard pairs.contains(where: { $0.hasPrefix("api-platform_serviceToken=") }),
-              pairs.contains(where: { $0.hasPrefix("userId=") }) else {
-            throw ProviderError.missingCredential("The Cookie header needs api-platform_serviceToken and userId.")
+    /// `GET /v1/platform/token_plan`. Credit counts must agree; period times have no zone and are UTC.
+    static func map(_ root: JSON, now: Date = Date()) throws -> ProviderUsage {
+        let invalid = ProviderError.parse("MiMo returned an unrecognized Token Plan response.")
+        guard root["object"].string == "token_plan" else { throw invalid }
+        func count(_ value: JSON) throws -> Int {
+            guard let number = value.raw as? NSNumber, !JSON.isBoolean(number), let int = Int(exactly: number.doubleValue),
+                  int >= 0 else { throw invalid }
+            return int
         }
-        return pairs.joined(separator: "; ")
-    }
-
-    private static func check(_ json: JSON) throws {
-        guard let code = json["code"].int, code != 0 else { return }
-        if code == 401 || code == 403 { throw ProviderError.unauthorized("MiMo rejected this session. Paste a new Cookie header.") }
-        throw ProviderError.parse("MiMo returned error code \(code).")
-    }
-
-    static func map(balance: JSON, detail: JSON?, usage: JSON?, now: Date = Date()) throws -> ProviderUsage {
-        try check(balance)
-        let data = balance["data"]
-        guard let amount = data["balance"].double, let currency = data["currency"].string else {
-            throw ProviderError.parse("MiMo returned an unexpected balance shape.")
+        let quota = root["quota"]
+        let total = try count(quota["total_credits"]), used = try count(quota["used_credits"])
+        guard try count(quota["remaining_credits"]) == max(0, total - used) else { throw invalid }
+        func date(_ value: JSON) throws -> Date? {
+            guard value.exists, !(value.raw is NSNull) else { return nil }
+            let parser = DateFormatter()
+            parser.locale = Locale(identifier: "en_US_POSIX")
+            parser.timeZone = TimeZone(identifier: "UTC")
+            parser.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            guard let text = value.raw as? String, let parsed = parser.date(from: text),
+                  parser.string(from: parsed) == text else { throw invalid }
+            return parsed
         }
-        var rows: [UsageRow] = []
-        if let cash = data["cashBalance"].double { rows.append(UsageRow("Paid", Fmt.money(cash, currency: currency))) }
-        if let gift = data["giftBalance"].double { rows.append(UsageRow("Granted", Fmt.money(gift, currency: currency))) }
-        var plan: String?
-        var periodEnd: Date?
-        if let detail, (try? check(detail)) != nil {
-            plan = detail["data"]["planCode"].string?.capitalized
-            periodEnd = detail["data"]["currentPeriodEnd"].date
-        }
-        var windows: [UsageWindow] = []
-        if let usage, (try? check(usage)) != nil {
-            let month = usage["data"]["monthUsage"]
-            let item = month["items"][0]
-            if let limit = item["limit"].double, limit > 0 {
-                let used = item["used"].double ?? 0
-                let percent = (item["percent"].double ?? month["percent"].double).map { $0 * 100 } ?? used / limit * 100
-                windows.append(UsageWindow(id: "monthly", title: "Credits", usedPercent: percent, resetsAt: periodEnd,
-                                           windowMinutes: periodEnd == nil ? nil : 43200,
-                                           detail: "\(Fmt.number(used)) / \(Fmt.number(limit)) Credits"))
-            }
-        }
-        return ProviderUsage(windows: windows, cost: UsageCost(balance: amount, currency: currency),
-                             sections: [UsageSection("Credits", rows)], plan: plan, fetchedAt: now)
+        let start = try date(root["period"]["start_at"]), end = try date(root["period"]["end_at"])
+        if let start, let end, end <= start { throw invalid }
+        let minutes = start.flatMap { start in end.map { Int($0.timeIntervalSince(start) / 60) } }
+        let windows = total > 0 ? [UsageWindow(id: "monthly", title: "Credits", usedPercent: Double(used) / Double(total) * 100,
+                                               resetsAt: end, windowMinutes: minutes,
+                                               detail: "\(Fmt.number(Double(used))) / \(Fmt.number(Double(total))) Credits")] : []
+        return ProviderUsage(windows: windows, plan: root["plan_code"].string, fetchedAt: now)
     }
 
     // MARK: Local fallback

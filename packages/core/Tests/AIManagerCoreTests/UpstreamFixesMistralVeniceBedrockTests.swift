@@ -5,40 +5,6 @@ import XCTest
 final class UpstreamFixesMistralVeniceBedrockTests: XCTestCase {
     private func json(_ text: String) throws -> JSON { try JSON(data: Data(text.utf8)) }
 
-    // MARK: Mistral
-
-    private func mistral(status: Int, location: String?) async throws -> JSON {
-        try await MistralUsage.json("https://admin.mistral.ai/api/billing/v2/usage", headers: [:]) { _, _ in
-            HTTPResponse(status: status, data: Data("{}".utf8), headers: location.map { ["location": $0] } ?? [:])
-        }
-    }
-
-    func testMistralLoginRedirectMeansSignInAgain() async throws {
-        for status in [301, 302, 303, 307, 308] {
-            do {
-                _ = try await mistral(status: status, location: "https://auth.mistral.ai/self-service/login/browser?return_to=x")
-                XCTFail("Accepted redirect \(status)")
-            } catch let error as ProviderError {
-                guard case .unauthorized = error else { return XCTFail("Wrong error: \(error)") }
-                XCTAssertTrue(error.needsSignIn)
-            }
-        }
-    }
-
-    func testMistralOtherRedirectsStayApiFailures() async throws {
-        for location in [nil, "https://auth.mistral.ai/other", "https://evil.example/self-service/login",
-                         "http://auth.mistral.ai/self-service/login", "https://auth.mistral.ai/self-service/loginx"] {
-            do {
-                _ = try await mistral(status: 302, location: location)
-                XCTFail("Accepted redirect to \(location ?? "nil")")
-            } catch let error as ProviderError {
-                XCTAssertEqual(error, .http(302, ""), location ?? "nil")
-            }
-        }
-        let ok = try await mistral(status: 200, location: nil)
-        XCTAssertTrue(ok.exists)
-    }
-
     // MARK: Venice
 
     func testVeniceBlockedCallsKeepKnownBalance() throws {

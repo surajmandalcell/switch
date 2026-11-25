@@ -22,6 +22,9 @@ final class UpstreamFixesClaudeTests: XCTestCase {
         let weekly = "Current week (all models)\n██  40% used\nResets Dec 2 at 12am (UTC)"
         let scoped = "Current week (Example Model)\n██  12% used\nResets Dec 2 at 12am (UTC)"
         XCTAssertFalse(ClaudeUsage.panelIsComplete(weekly))
+        XCTAssertTrue(ClaudeUsage.panelIsComplete(weekly + "\nEsc to cancel"))
+        XCTAssertFalse(ClaudeUsage.panelIsComplete(weekly + "\nRefreshing… Esc to cancel"))
+        XCTAssertFalse(ClaudeUsage.panelIsComplete("Current session\nLoading usage data…\n" + weekly + "\nEsc to cancel"))
         XCTAssertTrue(ClaudeUsage.panelIsComplete(weekly + insights))
         XCTAssertTrue(ClaudeUsage.panelIsComplete(weekly + "\n" + scoped + insights))
         // Only other rows: a model row without an all-models row still counts once the panel is drawn.
@@ -31,6 +34,48 @@ final class UpstreamFixesClaudeTests: XCTestCase {
                                                    now: ISO8601DateFormatter().date(from: "2026-11-14T00:00:00Z")!)
         XCTAssertEqual(usage.windows.map(\.id), ["weekly", "weekly-example-model"])
         XCTAssertEqual(usage.windows.map(\.usedPercent), [40, 12])
+    }
+
+    /// CodexBar 1df611dcf fixture: a weekly-only plan's raw PTY frames, loading first, then the drawn rows.
+    func testWeeklyOnlyPtyFramesCompleteInOneAttempt() throws {
+        let loading = "\u{1B}[HSettings  Status   Config   Usage   Stats\nCurrent week (all models)\nLoading usage data…\nEsc to cancel"
+        XCTAssertFalse(ClaudeUsage.panelIsComplete(loading))
+        let drawn = loading + "\u{1B}[H\u{1B}[JSettings  Status   Config   Usage   Stats\nCurrent week (all models)\n"
+            + "██████████████▌                       55% used\nResets Sep 23 at 3pm (Europe/Stockholm)\n"
+            + "Current week (Example Model)\n████                                    14% used\n"
+            + "Resets Sep 23 at 3pm (Europe/Stockholm)\nUsage credits\n"
+            + "Usage credits are off · /usage-credits to turn them on\nEsc to cancel"
+        XCTAssertTrue(ClaudeUsage.panelIsComplete(drawn))
+        let usage = try ClaudeUsage.parseUsageText(drawn, now: ISO8601DateFormatter().date(from: "2026-09-20T00:00:00Z")!)
+        XCTAssertEqual(usage.windows.map(\.id), ["weekly", "weekly-example-model"])
+        XCTAssertEqual(usage.windows.map(\.usedPercent), [55, 14])
+    }
+
+    func testWeeklyOnlyFakeCliFinishesInOneAttempt() async throws {
+#if !os(macOS)
+        throw XCTSkip("The Claude Code usage probe needs a macOS pseudo terminal.")
+#endif
+        let root = FileManager.default.temporaryDirectory.appending(path: "claude-weekly-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runs = root.appending(path: "runs.txt")
+        let claude = root.appending(path: "claude")
+        try """
+        #!/bin/sh
+        echo run >> '\(runs.path)'
+        printf 'Welcome\\n> '
+        read line
+        printf 'Current week (all models)\\n55%% used\\nResets Sep 23 at 3pm (UTC)\\nUsage credits\\nEsc to cancel\\n'
+        exec sleep 60
+        """.write(to: claude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: claude.path)
+        let started = Date()
+        let usage = try await ClaudeUsageProbe.run(configDir: root.appending(path: "cfg"), executable: claude,
+                                                   environment: ["PATH": "/usr/bin:/bin"],
+                                                   workingDirectory: root.appending(path: "cwd"), timeout: 20)
+        XCTAssertEqual(usage.windows.map(\.id), ["weekly"])
+        XCTAssertEqual(try String(contentsOf: runs, encoding: .utf8).split(separator: "\n").count, 1)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10, "must not wait out the timeout")
     }
 
     func testHugeOrNonFiniteResetCountsDoNotTrap() throws {

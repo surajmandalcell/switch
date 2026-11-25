@@ -41,12 +41,13 @@ extension RPCRuntimeTests {
         XCTAssertEqual(status.accounts.map { $0.id.uuidString.lowercased() }, [second])
         XCTAssertEqual(status.defaultAccountIDs["test-rpc"]?.uuidString.lowercased(), second)
 
-        // The last account of a provider is the default and has no replacement.
+        // The last account of a generic provider may be deleted; it asks first.
         let last = try await call(session, 6, "accounts.delete", #"{"accountID":"\#(second)"}"#)
-        XCTAssertEqual(errorCode(last), -32007)
-        XCTAssertTrue(((last["error"] as? [String: Any])?["message"] as? String ?? "").contains("No saved account is available"))
+        XCTAssertNil(errorCode(last))
+        let lastDone = try await call(session, 7, "accounts.delete", #"{"accountID":"\#(second)","confirm":"\#(try token(last))"}"#)
+        XCTAssertEqual(result(lastDone)?["status"] as? String, "done")
         status = try await manager.status()
-        XCTAssertEqual(status.accounts.count, 1)
+        XCTAssertEqual(status.accounts.count, 0)
         try await session.close()
         XCTAssertFalse(session.raw.contains("sk-canary"))
         XCTAssertEqual(String(describing: try JSONDecoder().decode(SecretString.self, from: Data(#""sk-x""#.utf8))), "<redacted>")

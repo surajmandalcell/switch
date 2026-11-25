@@ -353,8 +353,9 @@ enum GrokBuildUsage {
         if cap > 0, let used = config.at("onDemandUsed.val").double {
             rows.append(UsageRow("On-demand used", Fmt.money(used / 100), progress: used / cap))
         }
-        let prepaid = config.at("prepaidBalance.val").double ?? 0
-        return ProviderUsage(windows: windows, cost: prepaid > 0 ? UsageCost(balance: prepaid / 100) : nil,
+        // A reported $0 wallet stays visible; only a missing balance is left out.
+        let prepaid = config.at("prepaidBalance.val").double.flatMap { $0.isFinite ? max(0, $0) : nil }
+        return ProviderUsage(windows: windows, cost: prepaid.map { UsageCost(balance: $0 / 100) },
                              sections: [UsageSection(nil, rows)],
                              plan: plan ?? config["subscriptionTier"].string, email: email)
     }

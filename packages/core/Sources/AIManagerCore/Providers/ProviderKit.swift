@@ -251,7 +251,7 @@ extension String {
 
 /// How a provider account is stored and what Switching changes.
 public enum CredentialStyle: String, Codable, Sendable {
-    /// Typed secrets (API key, bearer token, pasted Cookie header). Switching selects the default.
+    /// The provider's own API key (never a pasted cookie or web session). Switching selects the default.
     case secret
     /// CLI-owned files in the provider's home. Switching swaps only these files; conversations stay.
     case files
@@ -281,9 +281,6 @@ public struct CredentialField: Sendable, Equatable {
     }
     public static func token(_ title: String = "Access token", env: String...) -> CredentialField {
         .init("token", title, env: env)
-    }
-    public static func cookie(_ hint: String) -> CredentialField {
-        .init("cookie", "Cookie header", placeholder: hint)
     }
 }
 
@@ -820,15 +817,5 @@ public enum Fmt {
         guard let data = Data(base64Encoded: encoded),
               let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
         return JSON(object)
-    }
-
-    /// Value of one cookie in a Cookie header.
-    public static func cookie(_ name: String, in header: String) -> String? {
-        header.split(separator: ";").lazy.compactMap { part -> String? in
-            let pair = part.split(separator: "=", maxSplits: 1).map {
-                $0.trimmingCharacters(in: .whitespaces)
-            }
-            return pair.count == 2 && pair[0] == name ? pair[1] : nil
-        }.first
     }
 }

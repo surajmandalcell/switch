@@ -101,12 +101,20 @@ enum AmpUsage {
                 if let value = number(found[1]) { rows.append(UsageRow("Workspace \(found[0])", Fmt.money(value))) }
             }
         }
+        // Enterprise workspaces name who pays instead of a balance, so there is no amount to meter.
+        var enterprise = false
+        if let regex = try? NSRegularExpression(pattern: #"(?im)^\s*Workspace\s+(.+?):\s*usage\s+paid\s+by\s+your\s+enterprise\b"#) {
+            for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                rows.append(UsageRow("Workspace \(groups(text, match)[0])", "Enterprise"))
+                enterprise = true
+            }
+        }
         guard !windows.isEmpty || credits != nil || !rows.isEmpty else {
             throw ProviderError.parse("Amp returned usage text that Switch cannot read.")
         }
         return ProviderUsage(windows: windows, cost: credits.map { UsageCost(balance: $0) },
                              sections: [UsageSection("Workspaces", rows), UsageSection("Monthly allowances", allowances)],
-                             plan: plan ?? (free != nil ? "Amp Free" : "Amp"),
+                             plan: plan ?? (free != nil ? "Amp Free" : (enterprise ? "Enterprise" : "Amp")),
                              email: identity?[0], organization: identity.flatMap { $0[1].isEmpty ? nil : $0[1] })
     }
 

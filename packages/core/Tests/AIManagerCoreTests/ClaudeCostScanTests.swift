@@ -315,6 +315,25 @@ final class ClaudeCostScanTests: XCTestCase {
         XCTAssertEqual(ModelRate.catalog(from: Data("[]".utf8)), [:])
     }
 
+    /// CodexBar 22f731375: cost splits by session ID and working directory, not by log file, and a
+    /// response copied into another log counts once, under its own session.
+    func testCostSplitsBySessionAndProjectAndCopiedResponseCountsOnce() async throws {
+        let alpha = #""sessionId":"s1","cwd":"/work/alpha","#
+        let beta = #""sessionId":"s2","cwd":"/work/beta","#
+        let copied = line(id: "msg-1", request: "req-1", top: alpha)
+        try write([copied, line(id: "msg-2", request: "req-2", top: beta)], to: "mixed.jsonl")
+        try write([copied], to: "resumed.jsonl")
+        let scan = scanner()
+        let rows = await scan.history(days: 2, now: now)
+        XCTAssertEqual(rows.map(\.project), ["/work/alpha", "/work/beta"])
+        XCTAssertEqual(rows.map(\.tokens), [1500, 1500])
+        let sessions = await scan.daySessions(day: "2026-03-10").sorted { $0.sessionID < $1.sessionID }
+        XCTAssertEqual(sessions.map(\.sessionID), ["s1", "s2"])
+        XCTAssertEqual(sessions.map(\.project), ["/work/alpha", "/work/beta"])
+        XCTAssertEqual(sessions.map(\.tokens), [1500, 1500])
+        XCTAssertEqual(sessions.compactMap(\.costUSD).reduce(0, +), 2 * money(1000, 500), accuracy: 1e-12)
+    }
+
     func testPricingSourceUsesCacheThenStaleOffline() async throws {
         let catalog = Data(#"{"claude-x":{"input_cost_per_token":1e-6,"output_cost_per_token":2e-6}}"#.utf8)
         let cache = root.appending(path: "pricing/model-pricing.json")
@@ -345,8 +364,14 @@ final class ClaudeCostScanTests: XCTestCase {
         let empty = ClaudePricingSource(cacheURL: root.appending(path: "none.json"), fetch: { _ in
             throw URLError(.notConnectedToInternet)
         })
+        // Empty cache and a failed fetch: only the bundled Mythos 5.2 rates remain.
         let nothing = await empty.rates()
-        XCTAssertEqual(nothing, [:])
+        XCTAssertEqual(Set(nothing.keys), ["claude-mythos-5-2"])
+        let mythos = try XCTUnwrap(nothing["claude-mythos-5-2"])
+        XCTAssertEqual([mythos.inputPerMillion, mythos.outputPerMillion, mythos.cacheWritePerMillion,
+                        mythos.cacheReadPerMillion], [8, 40, 10, 0.2])
+        var table = ModelRateTable(nothing)
+        XCTAssertEqual(table.resolve("claude-mythos-5-2-20261101"), mythos)
     }
 }
 

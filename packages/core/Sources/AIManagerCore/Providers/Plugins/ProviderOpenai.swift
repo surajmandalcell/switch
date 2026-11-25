@@ -7,6 +7,8 @@ extension ProviderCatalog {
         fields: [
             .apiKey("OPENAI_API_KEY"),
             CredentialField("projectID", "Project ID", secure: false, optional: true, placeholder: "proj_…"),
+            CredentialField("organizationID", "Organization ID", secure: false, optional: true, placeholder: "org-…",
+                            env: ["OPENAI_ORGANIZATION_ID"]),
             CredentialField("historyDays", "History days (1-365, default 30)", secure: false, optional: true,
                             env: ["OPENAI_HISTORY_DAYS"]),
         ],
@@ -41,13 +43,20 @@ extension ProviderCatalog {
                 return try OpenAIUsage.map(costs: costs, completions: completions, days: days, now: now, projectID: project)
             } catch let error as ProviderError where error.needsSignIn {
                 guard let grants = try? await HTTP.json("https://api.openai.com/v1/dashboard/billing/credit_grants",
-                                                        headers: headers) else { throw error }
+                                                        headers: OpenAIUsage.balanceHeaders(headers, organization: credential["organizationID"]))
+                else { throw error }
                 return try OpenAIUsage.mapCredits(grants, now: now)
             }
         })
 }
 
 enum OpenAIUsage {
+    /// The legacy balance is per organisation, so only that request names the chosen one.
+    static func balanceHeaders(_ headers: [String: String], organization: String?) -> [String: String] {
+        guard let organization = organization?.trimmingCharacters(in: .whitespacesAndNewlines), !organization.isEmpty else { return headers }
+        return headers.merging(["OpenAI-Organization": organization]) { $1 }
+    }
+
     /// Whole days from 1 to 365; anything else reads as 30.
     static func historyDays(_ text: String?) -> Int {
         guard let text, let value = Int(text) else { return 30 }

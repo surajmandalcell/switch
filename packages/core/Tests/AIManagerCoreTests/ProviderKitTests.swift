@@ -88,6 +88,5 @@ final class ProviderKitTests: XCTestCase {
         XCTAssertFalse(json.at("a.b")[3].exists)
         XCTAssertEqual(json["t"].date?.timeIntervalSince1970 ?? 0, 1_767_323_045.123, accuracy: 0.001)
         XCTAssertEqual(Fmt.epoch(1_700_000_000_000), Date(timeIntervalSince1970: 1_700_000_000))
-        XCTAssertEqual(Fmt.cookie("b", in: "a=1; b=two=2; c=3"), "two=2")
     }
 }

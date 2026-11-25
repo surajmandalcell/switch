@@ -80,7 +80,8 @@ swiftc -disable-sandbox -parse-as-library -emit-library -static -emit-module -mo
   "${model_sources[@]}" -emit-module-path "$products/SwitchAppModel.swiftmodule" -o "$products/libSwitchAppModel.a"
 sources=()
 for source in "$repo_root"/packages/mac-gui/Sources/AIManagerMacGUI/*.swift; do
-  [[ "$(basename "$source")" == AIManagerApp.swift ]] || sources+=("$source")
+  # CrashReports.swift needs IndieCrumb and only AIManagerApp.swift calls it.
+  [[ "$(basename "$source")" == AIManagerApp.swift || "$(basename "$source")" == CrashReports.swift ]] || sources+=("$source")
 done
 flags+=(-I "$products" -L "$products" -lAIManagerCore -lSwitchAppModel -lsqlite3
   -Xcc "-fmodule-map-file=$repo_root/packages/core/Sources/CSQLite/module.modulemap")

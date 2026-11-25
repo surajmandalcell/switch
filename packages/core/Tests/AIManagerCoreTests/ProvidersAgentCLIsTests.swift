@@ -185,20 +185,6 @@ final class ProvidersAgentCLIsTests: XCTestCase {
         XCTAssertEqual(apiKey?.count, 12)
     }
 
-    // MARK: Augment
-
-    func testAugmentCredits() throws {
-        let credits = try json(#"{"usageUnitsRemaining":15,"usageUnitsConsumedThisBillingCycle":10,"usageUnitsAvailable":100,"usageBalanceStatus":"active"}"#)
-        let subscription = try json(#"{"planName":"Max Plan","billingPeriodEnd":"2026-06-09T00:00:00Z","email":"a@example.com"}"#)
-        let usage = try AugmentUsage.map(credits: credits, subscription: subscription)
-        XCTAssertEqual(usage.windows[0].usedPercent, 10)
-        XCTAssertEqual(usage.windows[0].detail, "10 / 100 credits")
-        XCTAssertEqual(usage.plan, "Max Plan")
-        XCTAssertEqual(usage.email, "a@example.com")
-        let noTotal = try AugmentUsage.map(credits: json(#"{"usageUnitsRemaining":15,"usageUnitsConsumedThisBillingCycle":10}"#), subscription: nil)
-        XCTAssertEqual(noTotal.windows[0].usedPercent, 40)
-    }
-
     // MARK: Amp
 
     func testAmpTierText() throws {
@@ -342,7 +328,7 @@ final class ProvidersAgentCLIsTests: XCTestCase {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         let usage = PiUsage.map(PiUsage.entries(in: Data(log.utf8)), now: iso("2026-07-12T12:00:00Z"), calendar: calendar)
-        XCTAssertEqual(usage.sections.map(\.title), ["Today", "Last 30 days"])
+        XCTAssertEqual(usage.sections.map(\.title), ["Today", "Last 30 days", "Projects, last 30 days", "Recent sessions"])
         XCTAssertEqual(usage.sections[0].rows.first { $0.label == "Messages" }?.value, "1")
         XCTAssertEqual(usage.sections[0].rows.first { $0.label == "Tokens" }?.value, "150")
         XCTAssertEqual(usage.sections[1].rows.first { $0.label == "Messages" }?.value, "2")
