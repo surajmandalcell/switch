@@ -485,7 +485,7 @@ struct ProviderAccountStore {
         }
     }
 
-    private func resolveExecutable(_ command: String) -> URL? {
+    func resolveExecutable(_ command: String) -> URL? {
         func usable(_ url: URL) -> Bool {
             var isDirectory: ObjCBool = false
             return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
@@ -500,8 +500,11 @@ struct ProviderAccountStore {
             paths.userHome.appending(path: ".npm-global/bin").path,
             paths.userHome.appending(path: ".bun/bin").path,
         ]
+        // Gemini.app ships agy as a helper; an installed standalone CLI still wins.
+        let bundled = command == "agy" ? ["/Applications", paths.userHome.appending(path: "Applications").path]
+            .map { URL(fileURLWithPath: $0).appending(path: "Gemini.app/Contents/Helpers/agy") } : []
         return (executableCandidates(named: command, environment: environment)
-            + directories.map { URL(fileURLWithPath: $0).appending(path: command) }).first(where: usable)
+            + directories.map { URL(fileURLWithPath: $0).appending(path: command) } + bundled).first(where: usable)
     }
 
     // MARK: Index and vault

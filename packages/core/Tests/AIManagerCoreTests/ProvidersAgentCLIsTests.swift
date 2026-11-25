@@ -342,7 +342,7 @@ final class ProvidersAgentCLIsTests: XCTestCase {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         let usage = PiUsage.map(PiUsage.entries(in: Data(log.utf8)), now: iso("2026-07-12T12:00:00Z"), calendar: calendar)
-        XCTAssertEqual(usage.sections.map(\.title), ["Today", "Last 30 days"])
+        XCTAssertEqual(usage.sections.map(\.title), ["Today", "Last 30 days", "Projects, last 30 days", "Recent sessions"])
         XCTAssertEqual(usage.sections[0].rows.first { $0.label == "Messages" }?.value, "1")
         XCTAssertEqual(usage.sections[0].rows.first { $0.label == "Tokens" }?.value, "150")
         XCTAssertEqual(usage.sections[1].rows.first { $0.label == "Messages" }?.value, "2")
