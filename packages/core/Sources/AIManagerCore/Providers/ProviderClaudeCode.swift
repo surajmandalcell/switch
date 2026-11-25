@@ -230,8 +230,9 @@ enum ClaudeUsage {
     }
 
     /// True once the panel is fully drawn: no "Refreshing… Esc to cancel" footer, and either a Current session
-    /// and a Current week value, or any quota row followed by the "What's contributing to your limits usage?"
-    /// section (the last block after the rows, so a weekly-only plan completes too), or it says why it has none.
+    /// and a Current week value, or a Current week value plus the "Esc to cancel" footer and no Current session
+    /// label (weekly-only plan), or
+    /// any quota row followed by the "What's contributing to your limits usage?" section, or it says why it has none.
     static func panelIsComplete(_ text: String) -> Bool { isComplete(rendered: ClaudeTerminalScreen.render(text)) }
 
     static func isComplete(rendered: String) -> Bool {
@@ -242,6 +243,10 @@ enum ClaudeUsage {
         if flat.contains("refreshingesctocancel") { return false }
         let ids = Set(windows(rendered: rendered, now: Date()).map(\.id))
         if ids.contains("session") && ids.contains("weekly") { return true }
+        // Weekly-only plan: the rows start at Current week and the "Esc to cancel" footer is drawn under them,
+        // so no Session row will follow. Without the footer the panel may still be drawing: retry as before.
+        if ids.contains("weekly"), flat.contains("esctocancel"), !flat.contains("currentsession"),
+           !flat.contains("loadingusage") { return true }
         return !ids.isEmpty && flat.contains("whatscontributingtoyourlimitsusage")
     }
 
