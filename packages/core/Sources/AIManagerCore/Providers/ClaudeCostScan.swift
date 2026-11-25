@@ -176,8 +176,17 @@ public actor ClaudePricingSource {
         self.fetch = fetch
     }
 
-    /// Never throws: returns the stale catalog, or an empty table, when nothing is reachable.
+    /// Rates LiteLLM may lack, at Anthropic's published prices (CodexBar 71c557860). A catalog entry wins.
+    static let bundled: [String: ModelRate] = [
+        "claude-mythos-5-2": ModelRate(input: 8, output: 40, cacheWrite: 10, cacheRead: 0.2),
+    ]
+
+    /// Never throws: returns the stale catalog, or only the bundled rates, when nothing is reachable.
     public func rates() async -> [String: ModelRate] {
+        Self.bundled.merging(await catalogRates()) { _, catalog in catalog }
+    }
+
+    private func catalogRates() async -> [String: ModelRate] {
         let current = now()
         if let loaded, current.timeIntervalSince(loaded.at) < CodexAPIPricingResolver.cacheTTL { return loaded.rates }
         let disk = try? Data(contentsOf: cacheURL, options: [.mappedIfSafe])
@@ -272,12 +281,16 @@ struct ClaudeUsageEvent: Codable, Equatable {
     var model: String?
     /// Index of the source file while one scan runs. Never stored.
     var origin = 0
+    /// The line's `sessionId`. A response copied into another log keeps its own session.
+    var session: String?
+    /// The line's `cwd` while one file is parsed; the record keeps it per session instead. Never stored.
+    var cwd: String?
 
     var total: Int { input + output + cacheRead + cacheWrite5m + cacheWrite1h }
 
     private enum CodingKeys: String, CodingKey {
         case time, input, output, cacheRead, cacheWrite5m, cacheWrite1h, fast, hasSpeed
-        case messageID, requestID, sidechain, costUSD, model
+        case messageID, requestID, sidechain, costUSD, model, session
     }
 }
 
@@ -340,7 +353,8 @@ struct ClaudeLogParser {
             hasSpeed: tokens.hasSpeed, messageID: message["id"] as? String,
             requestID: object["requestId"] as? String,
             sidechain: object["isSidechain"] as? Bool ?? false,
-            costUSD: (object["costUSD"] as? NSNumber)?.doubleValue, model: model)
+            costUSD: (object["costUSD"] as? NSNumber)?.doubleValue, model: model,
+            session: object["sessionId"] as? String, cwd: (object["cwd"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         var events = [parent]
         // Advisor iterations are extra requests on their own model; other iterations are
         // already inside the parent totals.
@@ -406,7 +420,7 @@ public struct ClaudeHistoryRow: Equatable, Sendable {
     public var costUSD: Double?
 }
 
-/// One Claude Code session (log file) on one UTC day.
+/// One Claude Code session (session ID and working directory) on one UTC day.
 public struct ClaudeDaySession: Equatable, Sendable {
     public var sessionID: String
     public var project: String
@@ -426,6 +440,20 @@ public actor ClaudeCostScanner {
         var events: [ClaudeUsageEvent]
         /// First working directory the log names; nil in records saved before this field existed.
         var project: String?
+        /// First working directory of each session ID in the log.
+        var cwds: [String: String]
+
+        init(size: Int, mtime: Double, data: Data, parser: ClaudeLogParser) {
+            self.size = size
+            self.mtime = mtime
+            events = parser.parse(data)
+            project = ClaudeLogParser.cwd(in: data) ?? ""
+            var cwds: [String: String] = [:]
+            for event in events {
+                if let session = event.session, let cwd = event.cwd, cwds[session] == nil { cwds[session] = cwd }
+            }
+            self.cwds = cwds
+        }
     }
 
     private struct HistoryMemo {
@@ -445,7 +473,8 @@ public actor ClaudeCostScanner {
         var files: [String: FileRecord]
     }
 
-    static let cacheVersion = 1
+    /// 2: events carry their session ID and records their per-session working directories.
+    static let cacheVersion = 2
 
     private let roots: [URL]
     private let cacheURL: URL
@@ -505,7 +534,7 @@ public actor ClaudeCostScanner {
                 guard let data = try? Data(contentsOf: URL(fileURLWithPath: file.path), options: [.mappedIfSafe])
                 else { continue }
                 filesParsed += 1
-                next[file.path] = FileRecord(size: file.size, mtime: file.mtime, events: parser.parse(data))
+                next[file.path] = FileRecord(size: file.size, mtime: file.mtime, data: data, parser: parser)
             }
             events += next[file.path]?.events ?? []
         }
@@ -561,8 +590,7 @@ public actor ClaudeCostScanner {
                 else { continue }
                 filesParsed += 1
                 parsedAny = true
-                next[file.path] = FileRecord(size: file.size, mtime: file.mtime, events: parser.parse(data),
-                                             project: ClaudeLogParser.cwd(in: data) ?? "")
+                next[file.path] = FileRecord(size: file.size, mtime: file.mtime, data: data, parser: parser)
             }
         }
         if parsedAny || Set(next.keys) != Set(cache.files.keys) {
@@ -573,11 +601,13 @@ public actor ClaudeCostScanner {
 
         var origins: [(project: String, account: String?)] = []
         var events: [ClaudeUsageEvent] = []
+        var cwds: [String: String] = [:]
         for file in files {
             guard let record = next[file.path] else { continue }
             let project = record.project.flatMap { $0.isEmpty ? nil : $0 }
                 ?? URL(fileURLWithPath: file.path).deletingLastPathComponent().lastPathComponent
             origins.append((project, account(file.path)))
+            cwds.merge(record.cwds) { first, _ in first }
             events += record.events.map { var event = $0; event.origin = origins.count - 1; return event }
         }
         let kept = Self.dedup(events).filter {
@@ -595,7 +625,9 @@ public actor ClaudeCostScanner {
         for event in kept {
             let cost = Self.cost(of: event, table: &table)
             if cost == nil { unpriced = true }
-            let origin = origins[event.origin]
+            // A session counts under its own working directory, also when another log holds the copy that won.
+            var origin = origins[event.origin]
+            if let cwd = event.session.flatMap({ cwds[$0] }) { origin.project = cwd }
             func add(_ key: RowKey, to sums: inout [RowKey: (tokens: Int64, cost: Double?)]) {
                 var sum = sums[key] ?? (0, nil)
                 sum.tokens += Int64(event.total)
@@ -629,7 +661,7 @@ public actor ClaudeCostScanner {
         return (rows, slots)
     }
 
-    /// The sessions (one log file each) with usage on one UTC day, from the same cache and dedup as
+    /// The sessions (by session ID and working directory) with usage on one UTC day, from the same cache and dedup as
     /// `history`. Nothing is saved; a log the cache lacks is parsed once for this call.
     public func daySessions(day: String, account: (String) -> String? = { _ in nil }) async -> [ClaudeDaySession] {
         guard let epoch = UsageHistory.epochDay(day) else { return [] }
@@ -638,18 +670,19 @@ public actor ClaudeCostScanner {
         let parser = ClaudeLogParser()
         var origins: [(id: String, project: String, account: String?)] = []
         var events: [ClaudeUsageEvent] = []
+        var cwds: [String: String] = [:]
         for file in discover() where file.mtime >= from {
             var record = cache.files[file.path]
             if record == nil || record?.size != file.size || record?.mtime != file.mtime || record?.project == nil {
                 guard let data = try? Data(contentsOf: URL(fileURLWithPath: file.path), options: [.mappedIfSafe])
                 else { continue }
-                record = FileRecord(size: file.size, mtime: file.mtime, events: parser.parse(data),
-                                    project: ClaudeLogParser.cwd(in: data) ?? "")
+                record = FileRecord(size: file.size, mtime: file.mtime, data: data, parser: parser)
             }
             guard let record else { continue }
             let url = URL(fileURLWithPath: file.path)
             let project = record.project.flatMap { $0.isEmpty ? nil : $0 } ?? url.deletingLastPathComponent().lastPathComponent
             origins.append((url.deletingPathExtension().lastPathComponent, project, account(file.path)))
+            cwds.merge(record.cwds) { first, _ in first }
             events += record.events.map { var event = $0; event.origin = origins.count - 1; return event }
         }
         let kept = Self.dedup(events).filter {
@@ -658,18 +691,23 @@ public actor ClaudeCostScanner {
         var table = ModelRateTable([:])
         if kept.contains(where: { $0.costUSD == nil && $0.model != nil }) { table = ModelRateTable(await pricing()) }
         struct Sum { var tokens: Int64 = 0; var cost: Double?; var start = Date.distantFuture; var models: [String: Int64] = [:] }
-        var sums: [Int: Sum] = [:]
+        // One row per session ID and working directory; a log without session IDs is one session.
+        struct Key: Hashable { var id: String; var project: String; var account: String? }
+        var sums: [Key: Sum] = [:]
         for event in kept {
-            var sum = sums[event.origin] ?? Sum()
+            let origin = origins[event.origin]
+            let key = Key(id: event.session ?? origin.id,
+                          project: event.session.flatMap { cwds[$0] } ?? origin.project, account: origin.account)
+            var sum = sums[key] ?? Sum()
             sum.tokens += Int64(event.total)
             if let cost = Self.cost(of: event, table: &table) { sum.cost = (sum.cost ?? 0) + cost }
             sum.start = min(sum.start, event.time)
             if let model = event.model { sum.models[model, default: 0] += Int64(event.total) }
-            sums[event.origin] = sum
+            sums[key] = sum
         }
-        return sums.map { origin, sum in
+        return sums.map { key, sum in
             ClaudeDaySession(
-                sessionID: origins[origin].id, project: origins[origin].project, accountID: origins[origin].account,
+                sessionID: key.id, project: key.project, accountID: key.account,
                 model: sum.models.max { ($0.value, $1.key) < ($1.value, $0.key) }?.key, start: sum.start,
                 tokens: sum.tokens, costUSD: sum.cost)
         }
