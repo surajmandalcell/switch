@@ -1,6 +1,36 @@
 Switch is a native macOS app for keeping multiple AI coding-tool accounts ready
 and switching the account used by new sessions.
 
+Switch 3.10 adds a Today view, a cleaner Utilities page, safer account switches, and a
+check for new versions.
+
+- Overview has a Today range beside Week and Month, with tokens per hour and the busiest
+  hour of the day.
+- Maintenance is now Utilities, below History. Cleanup shows first how much space is safe
+  to free, with one Clear button.
+- History shows Claude Code chats beside Codex chats, filters by app, and has right-click
+  Copy actions.
+- Right-click a service in the menu bar popover and pick Choose Bars to set which bars it
+  shows.
+- Settings shows the version and says when a newer Switch is out. Switch asks its
+  update server once a day; the privacy page lists what that request sends.
+- Deleting an account keeps its usage history in Overview.
+- Account switches are crash-safe: an interrupted switch rolls back on the next start, and
+  a sign-in made after the crash is kept.
+- Sign-in is now only the tool's own browser or device sign-in, or the provider's API key.
+  25 providers that worked only with a pasted cookie or web session are removed; their
+  saved accounts stay on disk, hidden. TrustedRouter is new.
+- Fixes and price updates from CodexBar and OpenUsage for Claude, Codex, Cursor, Grok,
+  OpenCode Go, and more. A rejected key now says Sign in again instead of retrying.
+- After a crash, the next start shows the report with a Send button. Nothing is sent
+  unless you press Send.
+- "Open System Settings" and "Open Login Items" now show a small guide beside System
+  Settings that says which switch to turn on, and closes once access is on.
+- The only account of an add-on provider such as Gemini CLI can now be deleted.
+- A background launch shows no window, so Switch never jumps to the front at login.
+- Switch writes a small event log (1 MB per file, 3 files, 14 days) that `switch logs`
+  shows; it holds no keys or tokens.
+
 Switch 3.8 adds Droid (Factory) accounts and makes every page faster and calmer.
 
 Switch 3.8.2 is signed with Developer ID and notarized by Apple, so macOS opens it
