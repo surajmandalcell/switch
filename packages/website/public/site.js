@@ -2,7 +2,7 @@
   const GH = 'https://github.com/samhqapp/switch';
   // The typed version is the fallback; the fetch at the end swaps in the live one from api.samhq.app.
   const zip = v => GH + `/releases/download/v${v}/Switch-v${v}-mac-arm64.zip`;
-  const DL = zip('3.8.2');
+  const DL = zip('3.10.0');
   const base = document.body.dataset.base || '';
   const COLS = [
     ['Downloads', [['Download', DL], ['Homebrew', 'https://github.com/samhqapp/homebrew-tap/blob/main/Casks/switch.rb'], ['Release notes', GH + '/blob/master/docs/release-notes.md'], ['All releases', GH + '/releases']]],
@@ -12,7 +12,7 @@
   const ext = u => u.startsWith('http') ? ' target="_blank" rel="noopener"' : '';
   document.querySelectorAll('[data-links]').forEach(el => { el.innerHTML = COLS.map(([h, ls]) => `<div><h4>${h}</h4>${ls.map(([t, u]) => `<a href="${u}"${ext(u)}>${t}</a>`).join('')}</div>`).join(''); });
   document.querySelectorAll('[data-gh]').forEach(a => { a.href = GH; });
-  document.querySelectorAll('[data-notes]').forEach(a => { a.href = GH + '/releases/tag/v3.8.2'; });
+  document.querySelectorAll('[data-notes]').forEach(a => { a.href = GH + '/releases/tag/v3.10.0'; });
   document.querySelectorAll('[data-gh-report]').forEach(a => { a.href = GH + '/security/advisories/new'; });
 
   // Release scripts write samhq_backend/releases.json; this reads it, so a release needs no site edit.
