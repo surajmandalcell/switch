@@ -16,8 +16,8 @@ for platform in darwin-arm64 linux-x86_64 linux-aarch64; do
   tar -czf "$work/assets/Switch-cli-v3.9.1-$platform.tar.gz" -C "$work/cli" ai-manager libswiftCore.so SWIFT-LICENSE.txt
 done
 printf 'fixture app\n' > "$work/app/Switch.app/Contents/Info.plist"
-(cd "$work/app" && zip -qr "$work/assets/Switch-v3.8.2-mac-arm64.zip" Switch.app)
-(cd "$work/assets" && shasum -a 256 Switch-cli-*.tar.gz > checksums.txt && shasum -a 256 Switch-v3.8.2-mac-arm64.zip > checksums-v3.8.2.txt)
+(cd "$work/app" && zip -qr "$work/assets/Switch-v3.10.0-mac-arm64.zip" Switch.app)
+(cd "$work/assets" && shasum -a 256 Switch-cli-*.tar.gz > checksums.txt && shasum -a 256 Switch-v3.10.0-mac-arm64.zip > checksums-v3.10.0.txt)
 cat > "$work/mock/curl" <<'SH'
 #!/bin/sh
 while [ "$#" -gt 0 ]; do

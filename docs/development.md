@@ -175,7 +175,7 @@ with glibc 2.38 or later, SQLite 3, and libcurl 4. Swift runtime libraries stay
 beside the executable; neither Linux archive is a static musl build.
 The installer does not need sudo, change shell profiles, or touch account data.
 Run `bash scripts/check-installer.sh` for isolated installation and failure checks.
-It currently installs the public Mac app 3.8.2 and CLI 3.9.1. Publish
+It currently installs the public Mac app 3.10.0 and CLI 3.9.1. Publish
 `Switch-cli-v<version>-darwin-arm64.tar.gz`,
 `Switch-cli-v<version>-linux-x86_64.tar.gz`, and
 `Switch-cli-v<version>-linux-aarch64.tar.gz`, plus `checksums.txt`, under the

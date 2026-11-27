@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-app_version=3.8.2
+app_version=3.10.0
 cli_version=3.9.1
 releases=https://github.com/samhqapp/switch/releases/download
 fail() { printf 'Switch: %s\n' "$*" >&2; exit 1; }
