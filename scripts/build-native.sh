@@ -28,6 +28,9 @@ if [[ -n "$debug_info_format" ]]; then
   esac
 fi
 
+bash "$repo_root/scripts/check-mac-gui-permissions.sh" --self-test
+bash "$repo_root/scripts/check-mac-gui-permissions.sh"
+
 export CLANG_MODULE_CACHE_PATH="$build_path/module-cache/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$build_path/module-cache/swiftpm"
 mkdir -p "$CLANG_MODULE_CACHE_PATH" "$SWIFTPM_MODULECACHE_OVERRIDE"
@@ -77,6 +80,9 @@ install -m 0644 \
   "$repo_root/packaging/macos/Info.plist" \
   "$app_path/Contents/Info.plist"
 ditto "$repo_root/packages/mac-gui/Resources/Icons" "$app_path/Contents/Resources/Icons"
+# SamPermissions' panel text; Bundle.module looks in Contents/Resources.
+ditto "$bin_path/PermissionFlow_PermissionFlow.bundle" \
+  "$app_path/Contents/Resources/PermissionFlow_PermissionFlow.bundle"
 install -m 0644 "$repo_root/packages/mac-gui/Resources/Icons/AppIcon.icns" \
   "$app_path/Contents/Resources/AppIcon.icns"
 install -m 0644 "$repo_root/packages/mac-gui/Resources/Icons/AppIcon.car" \

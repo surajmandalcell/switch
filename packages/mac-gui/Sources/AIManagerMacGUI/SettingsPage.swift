@@ -524,7 +524,7 @@ final class LaunchAtLoginSettings: ObservableObject {
   }
 
   func openLoginItems() {
-    SMAppService.openSystemSettingsLoginItems()
+    SystemSettingsGuide.open(.loginItems)
   }
 }
 

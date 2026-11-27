@@ -40,11 +40,14 @@ esac
 source_snapshot="$output_path/source-snapshot"
 mkdir -p "$source_snapshot"
 for source in "$repo_root"/packages/mac-gui/Sources/AIManagerMacGUI/*.swift; do
-  # CrashReports.swift needs IndieCrumb and only AIManagerApp.swift calls it.
-  if [[ "$(basename "$source")" != "AIManagerApp.swift" && "$(basename "$source")" != "CrashReports.swift" ]]; then
-    cp "$source" "$source_snapshot/$(basename "$source")"
-    mac_gui_sources+=("$source_snapshot/$(basename "$source")")
-  fi
+  # CrashReports.swift (IndieCrumb) and Permissions.swift (SamPermissions) are called only from AIManagerApp.swift.
+  case "$(basename "$source")" in
+    AIManagerApp.swift|CrashReports.swift|Permissions.swift) ;;
+    *)
+      cp "$source" "$source_snapshot/$(basename "$source")"
+      mac_gui_sources+=("$source_snapshot/$(basename "$source")")
+      ;;
+  esac
 done
 for check in NativeUIContract MenuBarContract ConversationsCheck PrivacyModeCheck AcceptanceApp; do
   cp "$repo_root/packages/mac-gui/Tests/$check.swift" "$source_snapshot/$check.swift"
