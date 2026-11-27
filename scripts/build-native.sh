@@ -28,6 +28,7 @@ if [[ -n "$debug_info_format" ]]; then
   esac
 fi
 
+bash "$repo_root/scripts/check-mac-gui-permissions.sh" --self-test
 bash "$repo_root/scripts/check-mac-gui-permissions.sh"
 
 export CLANG_MODULE_CACHE_PATH="$build_path/module-cache/clang"

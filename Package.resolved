@@ -23,8 +23,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/samhqapp/sam-permissions.git",
       "state" : {
-        "revision" : "e8f47fd7e6ee95768f375f864de0720995e4e827",
-        "version" : "0.3.0"
+        "revision" : "6468d51fae728157b04bf0f20c0bdfea11151a78",
+        "version" : "0.3.2"
       }
     },
     {

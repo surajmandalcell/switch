@@ -130,7 +130,7 @@ dependencies.append(
 )
 // The guide panel beside System Settings for the Notifications and Login Items buttons.
 dependencies.append(
-    .package(url: "https://github.com/samhqapp/sam-permissions.git", exact: "0.3.0")
+    .package(url: "https://github.com/samhqapp/sam-permissions.git", exact: "0.3.2")
 )
 targets.append(
     .executableTarget(
