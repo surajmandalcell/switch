@@ -128,6 +128,10 @@ dependencies.append(
         .upToNextMinor(from: "0.3.0")
     )
 )
+// The guide panel beside System Settings for the Notifications and Login Items buttons.
+dependencies.append(
+    .package(url: "https://github.com/samhqapp/sam-permissions.git", exact: "0.3.0")
+)
 targets.append(
     .executableTarget(
         name: "AIManagerMacGUI",
@@ -137,6 +141,7 @@ targets.append(
             .product(name: "IndieCrumbCore", package: "indiecrumb-swift"),
             .product(name: "IndieCrumbCrash", package: "indiecrumb-swift"),
             .product(name: "IndieCrumbCrashUI", package: "indiecrumb-swift"),
+            .product(name: "SamPermissions", package: "sam-permissions"),
         ],
         path: "packages/mac-gui/Sources/AIManagerMacGUI"
     )

@@ -43,10 +43,15 @@ final class QuotaNotificationPermission: ObservableObject {
   }
 
   func openSystemSettings() {
-    if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
-      NSWorkspace.shared.open(url)
-    }
+    SystemSettingsGuide.open(.notifications)
   }
+}
+
+/// A System Settings page Switch sends the user to. Permissions.swift sets `open` to SamPermissions' guide
+/// panel at launch.
+enum SystemSettingsGuide {
+  enum Page { case notifications, loginItems }
+  @MainActor static var open: (Page) -> Void = { _ in }
 }
 
 /// The result of an action as a macOS notification: the text in the body (macOS titles it "Switch"),

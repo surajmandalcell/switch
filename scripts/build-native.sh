@@ -28,6 +28,8 @@ if [[ -n "$debug_info_format" ]]; then
   esac
 fi
 
+bash "$repo_root/scripts/check-mac-gui-permissions.sh"
+
 export CLANG_MODULE_CACHE_PATH="$build_path/module-cache/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$build_path/module-cache/swiftpm"
 mkdir -p "$CLANG_MODULE_CACHE_PATH" "$SWIFTPM_MODULECACHE_OVERRIDE"
