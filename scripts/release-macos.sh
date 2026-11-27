@@ -247,7 +247,9 @@ printf 'Published %s\nArchive: %s\nDisk image: %s\nChecksum: %s\n' \
 # the helper writes it with the Homebrew cask, pushes both, and waits until api.samhq.app serves the version.
 backend="$repo_root/../samhq_backend"
 if (( !preview )) && [[ -f "$backend/releases.json" ]]; then
-  build_number="$(plutil -extract CFBundleVersion raw -o - "$verify_dir/Switch.app/Contents/Info.plist")"
+  # The update check compares major*1000000 + minor*1000 + patch (UpdateCheck.buildNumber), not CFBundleVersion.
+  IFS=. read -r major minor patch <<< "$version"
+  build_number=$((major * 1000000 + minor * 1000 + patch))
   zsh "$backend/scripts/publish-release.zsh" --no-upload \
     --url "$(gh release view "$tag" --repo "$repo" --json url --jq .url)" \
     --sha256 "$(shasum -a 256 "$dmg" | cut -d' ' -f1)" \
