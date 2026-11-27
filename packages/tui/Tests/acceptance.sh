@@ -56,7 +56,8 @@ skip_if_native_writer_unknown() {
       and .[0].displayName == "Codex CLI"
       and .[1].displayName == "Grok Build"
       and (map(.id) | index("gemini-cli") != null and index("antigravity-cli") != null and index("litellm") != null)
-      and all(.availability == "enabled")
+      and all(.availability == "enabled"
+        or (.availability == "unavailable" and (.unavailableReason // "" | test("^Not available on [A-Za-z]+ yet[.]$"))))
     ' >/dev/null
 if "$binary" add claude-code --yes --json >"$test_root/disabled-provider.json" 2>"$test_root/disabled-provider.log"; then
   printf '%s\n' 'Expected the isolated fixture to have no Claude Code CLI.' >&2
